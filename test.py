@@ -12,22 +12,32 @@ def main(argv):
 
     # Read ZFS information from local computer
     # Change properties as needed
-    src_conn = zfslib.ZFSConnection(host='localhost', properties=["name", "avail", "usedsnap", "usedds", "usedrefreserv", "usedchild", "creation"])
+    conn = zfslib.ZFSConnection(host='localhost', properties=["name", "avail", "usedsnap", "usedds", "usedrefreserv", "usedchild", "creation"])
 
     # Load pool
-    pool = src_conn.pools.lookup(pool_name)
+    poolset = conn.get_poolset()
+    pool = poolset.lookup(pool_name)
+    
 
-    # Print all datasets test
-    print_all_datasets(pool)
+    # # Print all datasets test
+    # print_all_datasets(pool)
 
     # Load dataset
     ds = pool.get_child(ds_name)
 
     # Load snapshots by name and date/time range
-    snapshots = zfslib.get_snapshots(ds, name='autosnap*', dt_to=datetime.now(), tdelta=timedelta(hours=24))
+    # snapshots = ds.find_snapshots({'name': 'autosnap*', 'tdelta': timedelta(hours=8), 'dt_to': datetime.now()})
+    snapshots = ds.find_snapshots({'name': 'autosnap*', 'tdelta': '24H', 'dt_to': datetime.now()})
 
-    # Print Diffs in snapshots
-    print_diffs_test(src_conn, snapshots)
+
+    # # Print Diffs in snapshots
+    print_diffs_test(ds, snapshots)
+
+    # get_pool() test
+    p = ds.get_pool()
+
+    # get_connection() test
+    c = snapshots[-1:][0].get_connection()
 
 
     ds_name_full = f"{pool_name}/{ds_name}"
@@ -52,9 +62,9 @@ def print_all_datasets(pool: zfslib.Pool):
     for (depth, ds) in allds:
         print("{} {} ({}) - [{}] - {}".format(' .'*depth, ds.name, ds.get_property('name'), ds.get_property('mountpoint'), ds.get_property('used')))
 
-def print_diffs_test(conn:zfslib.ZFSConnection, snapshots: list):
+def print_diffs_test(ds: zfslib.Dataset, snapshots: list):
     for snap in snapshots:
-        diffs = zfslib.get_diffs(conn, snap_from=snap, ignore=['*.vscod*', '*_pycache_*'])
+        diffs = ds.get_diffs(snap_from=snap, ignore=['*.vscod*', '*_pycache_*'])
         for diff in diffs:
             print('{} - {}'.format(snap.name, diff))
 

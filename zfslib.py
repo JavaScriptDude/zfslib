@@ -2,7 +2,9 @@
 # .: zfslib.py :.
 # Libraries for reading data from zfs with Python
 # This library is a collation of https://github.com/Rudd-O/zfs-tools and customizations into a single library
-# Note: code from Rudd-O/zfs-tools was take on 2020/12/12 16:00 EST
+# Notes: 
+# . Code from Rudd-O/zfs-tools was take on 2020/12/12 16:00 EST
+# . Many zfs-tools methods have been removed 
 # .: Usage :.
 # see test.py source code
 # .: Other :.
@@ -46,6 +48,7 @@ if "check_output" not in dir( subprocess ): # duck punch it in!
         return output
     subprocess.check_output = f
 
+
 class ZFSConnection:
     host = None
     _poolset = None
@@ -56,8 +59,9 @@ class ZFSConnection:
         self.host = host
         self._trust = trust
         self._properties = properties if properties else []
-        self._poolset= PoolSet()
+        self._poolset= PoolSet(self)
         self.verbose = verbose
+        self._pools_loaded = False
         if host in ['localhost','127.0.0.1']:
             self.command = []
         else:
@@ -73,7 +77,7 @@ class ZFSConnection:
                 self.command.extend(["-o","UserKnownHostsFile=%s" % knownhostsfile])
             self.command.extend([self.host])
 
-    def _get_poolset(self):
+    def get_poolset(self):
         if self._dirty:
             properties = [ 'creation' ] + self._properties
             stdout2 = subprocess.check_output(self.command + ["zfs", "list", "-Hpr", "-o", ",".join( ['name'] + properties ), "-t", "all"])
@@ -85,109 +89,22 @@ class ZFSConnection:
             self._poolset.parse_zfs_r_output(stdout2,stdout_def,properties)
             self._dirty = False
         return self._poolset
-    pools = property(_get_poolset)
 
-    def create_dataset(self,name):
-        subprocess.check_call(self.command + ["zfs", "create", name])
-        self._dirty = True
-        return self.pools.lookup(name)
-
-    def destroy_dataset(self, name):
-        subprocess.check_call(self.command + ["zfs", "destroy", name])
-        self._dirty = True
-
-    def destroy_recursively(self, name, returnok=False):
-        """If returnok, then simply return success as a boolean."""
-        ok = True
-        cmd = self.command + ["zfs", "destroy", '-r', name]
-        if returnok:
-            ok = subprocess.call(cmd) == 0
-        else:
-            subprocess.check_call(cmd)
-        self._dirty = True
-        return ok
 
     def snapshot_recursively(self,name,snapshotname,properties={}):
         plist = sum( map( lambda x: ['-o', '%s=%s' % x ], properties.items() ), [] )
         subprocess.check_call(self.command + ["zfs", "snapshot", "-r" ] + plist + [ "%s@%s" % (name, snapshotname)])
         self._dirty = True
 
-    def send(self,name,opts=None,bufsize=-1,compression=False,lockdataset=None):
-        if not opts: opts = []
-        cmd = list(self.command)
-        if compression and cmd[0] == 'ssh': cmd.insert(1,"-C")
-        if lockdataset is not None:
-            cmd += ["zflock"]
-            if self.verbose:
-                cmd += ["-v"]
-            cmd += [lockdataset, "--"]
-        cmd += ["zfs", "send"] + opts + [name]
-        p = SpecialPopen(cmd,stdin=file(os.devnull),stdout=subprocess.PIPE,bufsize=bufsize)
-        return p
 
-    def receive(self,name,pipe,opts=None,bufsize=-1,compression=False,lockdataset=None):
-        if not opts: opts = []
-        cmd = list(self.command)
-        if compression and cmd[0] == 'ssh': cmd.insert(1,"-C")
-        if lockdataset is not None:
-            cmd += ["zflock"]
-            if self.verbose:
-                cmd += ["-v"]
-            cmd += [lockdataset, "--"]
-        cmd = cmd + ["zfs", "receive"] + opts + [name]
-        p = SpecialPopen(cmd,stdin=pipe,bufsize=bufsize)
-        return p
-
-    def transfer(self, dst_conn, s, d, fromsnapshot=None, showprogress=False, bufsize=-1, send_opts=None, receive_opts=None, ratelimit=-1, compression=False, locksrcdataset=None, lockdstdataset=None):
-        if send_opts is None: send_opts = []
-        if receive_opts is None: receive_opts = []
-
-        queue_of_killables = Queue()
-
-        if fromsnapshot: fromsnapshot=["-i",fromsnapshot]
-        else: fromsnapshot = []
-        sndprg = self.send(s, opts=[] + fromsnapshot + send_opts, bufsize=bufsize, compression=compression, lockdataset=locksrcdataset)
-        sndprg_supervisor = Thread(target=lambda: queue_of_killables.put((sndprg, sndprg.wait())))
-        sndprg_supervisor.start()
-
-        if showprogress:
-            try:
-                        barprg = progressbar(pipe=sndprg.stdout,bufsize=bufsize,ratelimit=ratelimit)
-                        barprg_supervisor = Thread(target=lambda: queue_of_killables.put((barprg, barprg.wait())))
-                        barprg_supervisor.start()
-                        sndprg.stdout.close()
-            except OSError:
-                        os.kill(sndprg.pid,15)
-                        raise
-        else:
-            barprg = sndprg
-
-        try:
-                        rcvprg = dst_conn.receive(d,pipe=barprg.stdout,opts=["-Fu"]+receive_opts,bufsize=bufsize,compression=compression, lockdataset=lockdstdataset)
-                        rcvprg_supervisor = Thread(target=lambda: queue_of_killables.put((rcvprg, rcvprg.wait())))
-                        rcvprg_supervisor.start()
-                        barprg.stdout.close()
-        except OSError:
-                os.kill(sndprg.pid, 15)
-                if sndprg.pid != barprg.pid: os.kill(barprg.pid, 15)
-                raise
-
-        dst_conn._dirty = True
-        allprocesses = set([rcvprg, sndprg]) | ( set([barprg]) if showprogress else set() )
-        while allprocesses:
-            diedprocess, retcode = queue_of_killables.get()
-            allprocesses = allprocesses - set([diedprocess])
-            if retcode != 0:
-                [ p.kill() for p in allprocesses ]
-                raise subprocess.CalledProcessError(retcode, diedprocess._saved_args)
 # END tools::connection.py
 
 
 ''' (from zfs-tools::models.py)
 Tree models for the ZFS tools
 '''
-# ZfsItem is an 'abstract' class
-class ZfsItem(object):
+# ZFSItem is an 'abstract' class for Pool, Dataset and Snapshot
+class ZFSItem(object):
     name = None
     children = None
     _properties = None
@@ -224,6 +141,16 @@ class ZfsItem(object):
         if not self.parent: return self.name
         return "%s/%s" % (self.parent.get_path(), self.name)
 
+    def get_pool(self):
+        p=self
+        while True:
+            if isinstance(p, Pool): return p
+            p = p.parent
+            
+    def get_connection(self):
+        p = self.get_pool()
+        return p.connection
+
     def get_relative_name(self):
         if not self.parent: return self.name
         return self.get_path()[len(self.parent.get_path()) + 1:]
@@ -255,7 +182,7 @@ class ZfsItem(object):
 
 
 
-class Dataset(ZfsItem):
+class Dataset(ZFSItem):
 
     def get_snapshots(self, flt=True):
         if flt is True: flt = lambda _:True
@@ -267,6 +194,110 @@ class Dataset(ZfsItem):
         assert len(children) < 2
         if not children: raise KeyError(name)
         return children[0]
+
+
+    # find_snapshots(dict) - Query all snapshots in Dataset and optionally filter by: 
+    #  * name: Snapshot name (wildcard supported) 
+    #  * dt_from: datetime to start
+    #  * tdelta: timedelta -or- string of nC where: n is an integer > 0 and C is one of y,m,d,H,M,S. Eg 5H = 5 Hours
+    #  * dt_to: datetime to stop 
+    #  * Date searching is any combination of:
+    #    .  (dt_from --> dt_to) | (dt_from --> dt_from + tdelta) | (dt_to - tdelta --> dt_to)
+    def find_snapshots(self, find_opts:dict) -> list:
+
+        def __assert(k, types):
+            if k == 'find_opts':
+                v=find_opts
+            else:
+                if not k in find_opts: return None
+                v = find_opts[k]
+            bOk=False
+            for t in types:
+                if isinstance(v, t): bOk=True
+            assert bOk, 'Invalid type for param {}. Expecting {} but got: {}'.format(k, types, type(v))
+            return v
+        find_opts = __assert('find_opts', [dict])
+        name = __assert('name', [str])
+        dt_from = __assert('dt_from', [datetime])
+        dt_to = __assert('dt_to', [datetime])
+        tdelta = __assert('tdelta', [str, timedelta])
+        
+
+        def __fil_n(snap):
+            if not name is None and not fnmatch.fnmatch(snap.name, name): return False
+            return True
+
+        def __fil_dt(snap):
+            if not __fil_n(snap): return False
+            cdate = snap.get_creation()
+            if cdate < dt_f: return False
+            if cdate > dt_t: return False
+            return True
+
+        if not dt_from and not dt_to and not tdelta:
+            f = __fil_n
+
+        else:
+            f=__fil_dt
+            if dt_from and dt_to and not tdelta:
+                dt_f = dt_from
+                dt_t = dt_to
+            else:
+                (dt_f, dt_t) = calcDateRange(tdelta=tdelta, dt_from=dt_from, dt_to=dt_to)
+        
+        return self.get_snapshots(flt=f)
+
+
+    # get_diffs() - Gets Diffs in snapshot or between snapshots (if snap_to is specified)
+    # ignore - list of glob expressions to ignore (eg ['*_pycache_*'])
+    # file_type - Filter on the following
+        # B       Block device
+        # C       Character device
+        # /       Directory
+        # >       Door
+        # |       Named pipe
+        # @       Symbolic link
+        # P       Event port
+        # =       Socket
+        # F       Regular file
+    # chg_type - Filter on the following:
+        # -       The path has been removed
+        # +       The path has been created
+        # M       The path has been modified
+        # R       The path has been renamed
+    def get_diffs(self, snap_from, snap_to=None, ignore:list=None, file_type:str=None, chg_type:str=None) -> list:
+        if snap_from is None or not isinstance(snap_from, Snapshot):
+            raise Exception("snap_from must be a Snapshot")
+        if not snap_to is None and not isinstance(snap_to, Snapshot):
+            raise Exception("snap_to must be a Snapshot")
+        if not ignore is None and not isinstance(ignore, list):
+            raise Exception("snap_to must be a Snapshot")
+
+        cmd = self.get_connection().command + ["zfs", "diff", "-FHt", snap_from.get_path()]
+        if snap_to: cmd = cmd + [snap_to.get_path()]
+
+        stdout = subprocess.check_output(cmd)
+        def __row(s):
+            s = s.decode('utf-8') if isinstance(s, bytes) else s
+            return s.strip().split( '\t' )
+        rows = list(map(lambda s: __row(s), stdout.splitlines()))
+        diffs = []
+        for row in rows:
+            d = Diff(row)
+            if not file_type is None and not d.file_type == file_type: continue
+            if not chg_type is None and not d.chg_type == chg_type: continue
+            if not ignore is None:
+                bIgn = False
+                for ign in ignore:
+                    if fnmatch.fnmatch(d.path_full, ign) \
+                        or (not d.path_r is None and fnmatch.fnmatch(d.path_r_full, ign)):
+                        bIgn = True
+                        break
+                if bIgn: continue
+            diffs.append(d)
+
+        return diffs
+
 
     def lookup(self, name):  # FINISH THIS
         if "@" in name:
@@ -290,21 +321,26 @@ class Dataset(ZfsItem):
 
         return dset
 
-
     def __str__(self):
         return "<Dataset:  %s>" % self.get_path()
     __repr__ = __str__
 
 
 
-class Pool(ZfsItem):
+class Pool(ZFSItem):
+    def __init__(self, name, conn:ZFSConnection):
+        self.name = name
+        self.children = []
+        self._properties = {}
+        self.connection = conn
+        
     def __str__(self):
         return "<Pool:     %s>" % self.get_path()
     __repr__ = __str__
 
 
 
-class Snapshot(ZfsItem):
+class Snapshot(ZFSItem):
     # def __init__(self,name):
         # Dataset.__init__(self,name)
     def get_path(self):
@@ -316,10 +352,12 @@ class Snapshot(ZfsItem):
     __repr__ = __str__
 
 
-class PoolSet:  # maybe rewrite this as a dataset or something?
+
+class PoolSet(object):  # maybe rewrite this as a dataset or something?
     pools = None
 
-    def __init__(self):
+    def __init__(self, conn:ZFSConnection):
+        self.connection=conn
         self.pools = {}
 
     def lookup(self, name):
@@ -395,7 +433,7 @@ class PoolSet:  # maybe rewrite this as a dataset or something?
                 snapshot = None
             if "/" not in dset:  # pool name
                 if dset not in self.pools:
-                    self.pools[dset] = Pool(dset)
+                    self.pools[dset] = Pool(dset, self.connection)
                     fs = self.pools[dset]
             poolname, pathcomponents = dset.split("/")[0], dset.split("/")[1:]
             fs = self.pools[poolname]
@@ -425,11 +463,17 @@ class PoolSet:  # maybe rewrite this as a dataset or something?
                     d = self.lookup(dset)
                     d.parent.remove(d)
 
+
+    
+
+
     def remove(self, name):  # takes a NAME, unlike the child that is taken in the remove of the dataset method
         for c in self.pools[name].children:
             self.pools[name].remove(c)
         self.pools[name].invalidated = True
         del self.pools[name]
+
+
 
     def __getitem__(self, name):
         return self.pools[name]
@@ -446,236 +490,6 @@ class PoolSet:  # maybe rewrite this as a dataset or something?
     def __iter__(self):
         return self.walk()
 # END tools::models.py
-
-
-
-''' (from zfs-tools::sync.py)
-Synchronization-related functionality
-'''
-
-
-# it is time to determine which datasets need to be synced
-# we walk the entire dataset structure, and sync snapshots recursively
-def recursive_replicate(s, d):
-    sched = []
-
-    # we first collect all snapshot names, to later see if they are on both sides, one side, or what
-    all_snapshots = []
-    if s: all_snapshots.extend(s.get_snapshots())
-    if d: all_snapshots.extend(d.get_snapshots())
-    all_snapshots = [ y[1] for y in sorted([ (x.get_property('creation'), x.name) for x in all_snapshots ]) ]
-    snapshot_pairs = []
-    for snap in all_snapshots:
-        try: ssnap = s.get_snapshot(snap)
-        except (KeyError, AttributeError): ssnap = None
-        try: dsnap = d.get_snapshot(snap)
-        except (KeyError, AttributeError): dsnap = None
-        # if the source snapshot exists and is not already in the table of snapshots
-        # then pair it up with its destination snapshot (if it exists) or None
-        # and add it to the table of snapshots
-        if ssnap and not snap in [ x[0].name for x in snapshot_pairs ]:
-            snapshot_pairs.append((ssnap, dsnap))
-
-    # now we have a list of all snapshots, paired up by name, and in chronological order
-    # (it's quadratic complexity, but who cares)
-    # now we need to find the snapshot pair that happens to be the the most recent common pair
-    found_common_pair = False
-    for idx, (m, n) in enumerate(snapshot_pairs):
-        if m and n and m.name == n.name:
-            found_common_pair = idx
-
-    # we have combed through the snapshot pairs
-    # time to check what the latest common pair is
-    if not s.get_snapshots():
-        if d is None:
-            # well, no snapshots in source, just create a stub in the target
-            sched.append(("create_stub", s, d, None, None))
-    elif found_common_pair is False:
-        # no snapshot is in common, problem!
-        # theoretically destroying destination dataset and resyncing it recursively would work
-        # but this requires work in the optimizer that comes later
-        if d is not None and d.get_snapshots():
-            warnings.warn("Asked to replicate %s into %s but %s has snapshots and both have no snapshots in common!" % (s, d, d))
-        # see source snapshots
-        full_source_snapshots = [ y[1] for y in sorted([ (x.get_property('creation'), x) for x in s.get_snapshots() ]) ]
-        # send first snapshot as full snapshot
-        sched.append(("full", s, d, None, full_source_snapshots[0]))
-        if len(full_source_snapshots) > 1:
-            # send other snapshots as incremental snapshots
-            sched.append(("incremental", s, d, full_source_snapshots[0], full_source_snapshots[-1]))
-    elif found_common_pair == len(snapshot_pairs) - 1:
-        # the latest snapshot of both datasets that is common to both, is the latest snapshot in the source
-        # we have nothing to do here because the datasets are "in sync"
-        pass
-    else:
-        # the source dataset has more recent snapshots, not present in the destination dataset
-        # we need to transfer those
-        snapshots_to_transfer = [ x[0] for x in snapshot_pairs[found_common_pair:] ]
-        for n, x in enumerate(snapshots_to_transfer):
-            if n == 0: continue
-            sched.append(("incremental", s, d, snapshots_to_transfer[n - 1], x))
-
-    # now let's apply the same argument to the children
-    children_sched = []
-    for c in [ x for x in s.children if not isinstance(x, Snapshot) ]:
-        try: cd = d.get_child(c.name)
-        except (KeyError, AttributeError): cd = None
-        children_sched.extend(recursive_replicate(c, cd))
-
-    # and return our schedule of operations to the parent
-    return sched + children_sched
-
-def optimize_coalesce(operation_schedule):
-    # now let's optimize the operation schedule
-    # this optimization is quite basic
-    # step 1: coalesce contiguous operations on the same file system
-
-    operations_grouped_by_source = itertools.groupby(
-        operation_schedule,
-        lambda op: op[1]
-    )
-    new = []
-    for _, opgroup in [ (x, list(y)) for x, y in operations_grouped_by_source ]:
-        if not opgroup:  # empty opgroup
-            continue
-        if opgroup[0][0] == 'full':  # full operations
-            new.extend(opgroup)
-        elif opgroup[0][0] == 'create_stub':  # create stub operations
-            new.extend(opgroup)
-        elif opgroup[0][0] == 'incremental':  # incremental
-            # 1->2->3->4 => 1->4
-            new_ops = [ (srcs, dsts) for _, _, _, srcs, dsts in opgroup ]
-            new_ops = simplify(new_ops)
-            for srcs, dsts in new_ops:
-                new.append(tuple(opgroup[0][:3] + (srcs, dsts)))
-        else:
-            assert 0, "not reached: unknown operation type in %s" % opgroup
-    return new
-
-def optimize_recursivize(operation_schedule):
-    def recurse(dataset, func):
-        results = []
-        results.append((dataset, func(dataset)))
-        results.extend([ x for child in dataset.children if child.__class__ != Snapshot for x in recurse(child, func) ])
-        return results
-
-    def zero_out_sched(dataset):
-        dataset._ops_schedule = []
-
-    def evict_sched(dataset):
-        dataset._ops_schedule = []
-
-    operations_grouped_by_source = itertools.groupby(
-        operation_schedule,
-        lambda op: op[1]
-    )
-    operations_grouped_by_source = [ (x, list(y)) for x, y in operations_grouped_by_source ]
-
-    roots = set()
-    for root, opgroup in operations_grouped_by_source:
-        while root.parent is not None:
-            root = root.parent
-        roots.add(root)
-
-    for root in roots:
-        recurse(root, zero_out_sched)
-
-    for source, opgroup in operations_grouped_by_source:
-        source._ops_schedule = opgroup
-
-    def compare(*ops_schedules):
-        assert len(ops_schedules), "operations schedules cannot be empty: %r" % ops_schedules
-
-        # in the case of the list of operations schedules being just one (no children)
-        # we return True, cos it's safe to recursively replicate this one
-        if len(ops_schedules) == 1:
-            return True
-
-        # now let's check that all ops schedules are the same length
-        # otherwise they are not the same and we can say the comparison isn't the same
-        lens = set([ len(o) for o in ops_schedules ])
-        if len(lens) != 1:
-            return False
-
-        # we have multiple schedules
-        # if their type, snapshot origin and snapshot destination are all the same
-        # we can say that they are "the same"
-        comparisons = [
-                all([
-                    # never attempt to recursivize operations who involve create_stub
-                    all(["create_stub" not in o[0] for o in ops]),
-                    len(set([o[0] for o in ops])) == 1,
-                    any([o[3] is None for o in ops]) or len(set([o[3].name for o in ops])) == 1,
-                    any([o[4] is None for o in ops]) or len(set([o[4].name for o in ops])) == 1,
-                ])
-                for ops
-                in zip(*ops_schedules)
-        ]
-        return all(comparisons)
-
-    # remove unnecessary stubs that stand in for only other stubs
-    for root in roots:
-        for dataset, _ in recurse(root, lambda d: d):
-            ops = [z for x, y in recurse(dataset, lambda d: d._ops_schedule) for z in y]
-            if all([o[0] == 'create_stub' for o in ops]):
-                dataset._ops_schedule = []
-
-    for root in roots:
-        for dataset, _ in recurse(root, lambda d: d):
-            if compare(*[y for x, y in recurse(dataset, lambda d: d._ops_schedule)]):
-                old_ops_schedule = dataset._ops_schedule
-                recurse(dataset, zero_out_sched)
-                for op in old_ops_schedule:
-                    dataset._ops_schedule.append((
-                        op[0] + "_recursive", op[1], op[2], op[3], op[4]
-                    ))
-
-    new_operation_schedule = []
-    for root in roots:
-        for dataset, ops_schedule in recurse(root, lambda d: d._ops_schedule):
-            new_operation_schedule.extend(ops_schedule)
-
-    for root in roots:
-        recurse(root, evict_sched)
-
-    return new_operation_schedule
-
-def optimize(operation_schedule, allow_recursivize = True):
-    operation_schedule = optimize_coalesce(operation_schedule)
-    if allow_recursivize:
-        operation_schedule = optimize_recursivize(operation_schedule)
-    return operation_schedule
-
-# we walk the entire dataset structure, and sync snapshots recursively
-def recursive_clear_obsolete(s, d):
-    sched = []
-
-    # we first collect all snapshot names, to later see if they are on both sides, one side, or what
-    snapshots_in_src = set([ m.name for m in s.get_snapshots() ])
-    snapshots_in_dst = set([ m.name for m in d.get_snapshots() ])
-
-    snapshots_to_delete = snapshots_in_dst - snapshots_in_src
-    snapshots_to_delete = [ d.get_snapshot(m) for m in snapshots_to_delete ]
-
-    for m in snapshots_to_delete:
-        sched.append(("destroy", m))
-
-    # now let's apply the same argument to the children
-    children_sched = []
-    for child_d in [ x for x in d.children if not isinstance(x, Snapshot) ]:
-        child_s = None
-
-        try:
-            child_s = s.get_child(child_d.name)
-        except (KeyError, AttributeError):
-            children_sched.append(("destroy_recursively", child_d))
-
-        if child_s:
-            children_sched.extend(recursive_clear_obsolete(child_s, child_d))
-
-    # and return our schedule of operations to the parent
-    return sched + children_sched
-# END zfs-tools::sync.py
 
 
 
@@ -790,11 +604,6 @@ def set_verbose(boolean):
 
 
 
-# =====================================================
-# Begin new code for zfslib
-# =====================================================
-
-
 # (qcorelite.py - code from my own internal utility)
 
 # Calculates a date range based on tdelta string passed
@@ -906,91 +715,13 @@ class Diff():
     __repr__ = __str__
 
 
-# Query all snapshots in Dataset allowing filter by: 
-#  * name: Snapshot name (wildcard sup.), 
-#  * dt_from: datetime to start
-#  * tdelta: timedelta -or- str(nC) where: n is an integer > 0 and C is one of:
-#  ** y=year, m=month, d=day, H=hour, M=minute, s=second. Eg 5H = 5 Hours
-#  * dt_to: datetime to stop 
-#  * Date search is any combination of (dt_from, dt_to) -or- (dt_from, tdelta) -or- (tdelta, dt_to)
-def get_snapshots(ds:Dataset, name:str, dt_from:datetime=None, tdelta=None, dt_to:datetime=None) -> list:
-
-    def __fil_n(snap):
-        if not fnmatch.fnmatch(snap.name, name): return False
-        return True
-
-    def __fil_dt(snap):
-        if not fnmatch.fnmatch(snap.name, name): return False
-        cdate = snap.get_creation()
-        if cdate < dt_f: return False
-        if cdate > dt_t: return False
-        return True
-
-    if not dt_from and not dt_to and not tdelta:
-        f = __fil_n
-
-    else:
-        f=__fil_dt
-        if dt_from and dt_to and not tdelta:
-            dt_f = dt_from
-            dt_t = dt_to
-        else:
-            (dt_f, dt_t) = calcDateRange(tdelta=tdelta, dt_from=dt_from, dt_to=dt_to)
-    
-    return ds.get_snapshots(flt=f)
 
 
 
 
-# Gets Diffs in snapshot or between snapshots (if snap_to is specified)
-# ignore - list of glob expressions to ignore (eg ['*_pycache_*'])
-# file_type - Filter on the following
-    # B       Block device
-    # C       Character device
-    # /       Directory
-    # >       Door
-    # |       Named pipe
-    # @       Symbolic link
-    # P       Event port
-    # =       Socket
-    # F       Regular file
-# chg_type - Filter on the following:
-    # -       The path has been removed
-    # +       The path has been created
-    # M       The path has been modified
-    # R       The path has been renamed
-def get_diffs(conn:ZFSConnection, snap_from:Snapshot, snap_to:Snapshot=None, ignore:list=None, file_type:str=None, chg_type:str=None) -> list:
-    if conn is None or not isinstance(conn, ZFSConnection):
-        raise Exception("conn must be a ZFSConnection")
-    if snap_from is None or not isinstance(snap_from, Snapshot):
-        raise Exception("snap_from must be a Snapshot")
-    if not snap_to is None and not isinstance(snap_to, Snapshot):
-        raise Exception("snap_to must be a Snapshot")
-    if not ignore is None and not isinstance(ignore, list):
-        raise Exception("snap_to must be a Snapshot")
 
-    cmd = conn.command + ["zfs", "diff", "-FHt", snap_from.get_path()]
-    if snap_to: cmd = cmd + [snap_to.get_path()]
 
-    stdout = subprocess.check_output(cmd)
-    def __row(s):
-        s = s.decode('utf-8') if isinstance(s, bytes) else s
-        return s.strip().split( '\t' )
-    rows = list(map(lambda s: __row(s), stdout.splitlines()))
-    diffs = []
-    for row in rows:
-        d = Diff(row)
-        if not file_type is None and not d.file_type == file_type: continue
-        if not chg_type is None and not d.chg_type == chg_type: continue
-        if not ignore is None:
-            bIgn = False
-            for ign in ignore:
-                if fnmatch.fnmatch(d.path_full, ign) \
-                    or (not d.path_r is None and fnmatch.fnmatch(d.path_r_full, ign)):
-                    bIgn = True
-                    break
-            if bIgn: continue
-        diffs.append(d)
 
-    return diffs
+
+
 
