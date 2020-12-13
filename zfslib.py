@@ -77,7 +77,12 @@ class ZFSConnection:
         if self._dirty:
             properties = [ 'creation' ] + self._properties
             stdout2 = subprocess.check_output(self.command + ["zfs", "list", "-Hpr", "-o", ",".join( ['name'] + properties ), "-t", "all"])
-            self._poolset.parse_zfs_r_output(stdout2,properties)
+
+            cmd = self.command + ["zfs", "list", "-Hpr"]
+            # print("cmd = {}".format(' '.join(cmd)))
+            stdout_def = subprocess.check_output(cmd)
+
+            self._poolset.parse_zfs_r_output(stdout2,stdout_def,properties)
             self._dirty = False
         return self._poolset
     pools = property(_get_poolset)
@@ -181,12 +186,14 @@ class ZFSConnection:
 ''' (from zfs-tools::models.py)
 Tree models for the ZFS tools
 '''
-class Dataset(object):
+# ZfsItem is an 'abstract' class
+class ZfsItem(object):
     name = None
     children = None
     _properties = None
     parent = None
     invalidated = False
+
     def __init__(self, name, parent=None):
         self.name = name
         self.children = []
@@ -204,6 +211,51 @@ class Dataset(object):
         assert len(child) < 2
         if not child: raise KeyError(name)
         return child[0]
+        
+    def remove(self, child):
+        if child not in self.children: raise KeyError(child.name)
+        child.invalidated = True
+        child.parent = None
+        self.children.remove(child)
+        for c in child.children:
+            child.remove(c)
+
+    def get_path(self):
+        if not self.parent: return self.name
+        return "%s/%s" % (self.parent.get_path(), self.name)
+
+    def get_relative_name(self):
+        if not self.parent: return self.name
+        return self.get_path()[len(self.parent.get_path()) + 1:]
+
+    def walk(self):
+        assert not self.invalidated, "%s invalidated" % self
+        yield self
+        for c in self.children:
+            for element in c.walk():
+                yield element
+
+    def __iter__(self):
+        return self.walk()
+
+    def get_property(self,name):
+        return self._properties[ name ]
+    
+    def get_creation(self):
+        return datetime.fromtimestamp(int(self._properties["creation"]))
+
+    # returns list(of tuple(of depth, Dataset))
+    def get_all_datasets(self, depth:int=0):
+        a = []
+        for c in self.children:
+            if isinstance(c, Dataset):
+                a.append( (depth, c) )
+                a = a + c.get_all_datasets(depth+1)
+        return a
+
+
+
+class Dataset(ZfsItem):
 
     def get_snapshots(self, flt=True):
         if flt is True: flt = lambda _:True
@@ -238,50 +290,21 @@ class Dataset(object):
 
         return dset
 
-    def remove(self, child):
-        if child not in self.children: raise KeyError(child.name)
-        child.invalidated = True
-        child.parent = None
-        self.children.remove(child)
-        for c in child.children:
-            child.remove(c)
-
-    def get_path(self):
-        if not self.parent: return self.name
-        return "%s/%s" % (self.parent.get_path(), self.name)
-
-    def get_relative_name(self):
-        if not self.parent: return self.name
-        return self.get_path()[len(self.parent.get_path()) + 1:]
-
-    def walk(self):
-        assert not self.invalidated, "%s invalidated" % self
-        yield self
-        for c in self.children:
-            for element in c.walk():
-                yield element
-
-    def __iter__(self):
-        return self.walk()
 
     def __str__(self):
         return "<Dataset:  %s>" % self.get_path()
     __repr__ = __str__
 
-    def get_property(self,name):
-        return self._properties[ name ]
-    
-    def get_creation(self):
-        return datetime.fromtimestamp(int(self._properties["creation"]))
 
 
-class Pool(Dataset):
+class Pool(ZfsItem):
     def __str__(self):
         return "<Pool:     %s>" % self.get_path()
     __repr__ = __str__
 
 
-class Snapshot(Dataset):
+
+class Snapshot(ZfsItem):
     # def __init__(self,name):
         # Dataset.__init__(self,name)
     def get_path(self):
@@ -321,7 +344,7 @@ class PoolSet:  # maybe rewrite this as a dataset or something?
 
         return dset
 
-    def parse_zfs_r_output(self, zfs_r_output, properties = None):
+    def parse_zfs_r_output(self, zfs_r_output, zfs_def_output, properties = None):
         """Parse the output of tab-separated zfs list.
 
         properties must be a list of property names expected to be found as
@@ -330,6 +353,21 @@ class PoolSet:  # maybe rewrite this as a dataset or something?
         E.g. if properties passed here was ['creation'], we would expect
         each zfs_r_output line to look like 'dataset	3249872348'
         """
+
+
+        #Parse std output
+        def __row(s):
+            s = s.decode('utf-8') if isinstance(s, bytes) else s
+            return s.strip().split( '\t' )
+        std_rows = list(map(lambda s: __row(s), zfs_def_output.splitlines()))
+        std_data={}
+        for std_row in std_rows:
+            if len(std_row) == 5:
+                (std_name, std_used, std_avail, std_ref, std_mount) = std_row
+            else:
+                raise Exception("Unexpected length returned by command: 'zfs list -Hpr'. Row returned: {}".format(' '.join(cmd), std_row))
+            std_data[std_name] = (std_used, std_avail, std_ref, std_mount)
+
         try:
             properties = ['name', 'creation'] if properties == None else ['name'] + properties
         except TypeError:
@@ -372,6 +410,12 @@ class PoolSet:  # maybe rewrite this as a dataset or something?
                     fs = Snapshot(snapshot, fs)
 
             fs._properties.update( creations[fs.get_path()] )
+            
+            (std_used, std_avail, std_ref, std_mount) = std_data[dset]
+            # std_avail is avail, std_ref is usedds
+            fs._properties['mountpoint'] = std_mount
+            fs._properties['used'] = std_used
+
 
         for dset in old_dsets:
             if dset not in new_dsets:
