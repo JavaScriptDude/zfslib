@@ -5,7 +5,7 @@ This code is based on code from [fs-tools by Rudd-O](https://github.com/Rudd-O/z
 
 
 Notable additions so far:
-### getSnapshots()
+### get_snapshots()
 ```
 # Query all snapshots in Dataset allowing filter by: 
 #  * name: Snapshot name (wildcard sup.), 
@@ -14,7 +14,7 @@ Notable additions so far:
 #  ** y=year, m=month, d=day, H=hour, M=minute, s=second. Eg 5H = 5 Hours
 #  * dt_to: datetime to stop 
 #  * Date search is any combination of (dt_from, dt_to) -or- (dt_from, tdelta) -or- (tdelta, dt_to)
-def getSnapshots(ds:Dataset, name:str, dt_from:datetime=None, tdelta=None, dt_to:datetime=None) -> list:
+def get_snapshots(ds:Dataset, name:str, dt_from:datetime=None, tdelta=None, dt_to:datetime=None) -> list:
     ...
 ```
 ### get_diffs()
