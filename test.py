@@ -11,7 +11,7 @@ def main(argv):
 
     # Read ZFS information from local computer
     # Change properties as needed
-    conn = zfslib.ZFSConnection(host='localhost', properties=["name", "avail", "usedsnap", "usedds", "usedrefreserv", "usedchild", "creation"])
+    conn = zfslib.ZFSConnection(host='localhost', properties=["avail", "usedsnap", "usedds", "usedrefreserv", "usedchild", "creation"])
 
     # Load pool
     poolset = conn.get_poolset()
@@ -33,9 +33,9 @@ def main(argv):
     # Get Snapshot path
     # for i, snap in enumerate(snapshots):
     #     if i > 0:
-    #         diffs = ds.get_diffs(snap_last, snap, file_type='F', chg_type='M', include=['*.py', '*.js', '*.aspx'], ignore=['*.vscod*', '*_pycache_*'])
+    #         diffs = ds.get_diffs(snap_last, snap, file_type='F', chg_type='M', include=['*.py', '*.js'], ignore=['*.vscod*', '*_pycache_*'])
     #         if len(diffs) > 0:
-    #             sp = snap.get_snap_path()
+    #             sp = snap.snap_path
     #             (found, sp_res) = snap.resolve_snap_path('/home/foobar/baz/xyz')
     #             print(here)
 
@@ -45,27 +45,27 @@ def main(argv):
     # # Print Diffs in snapshots
     print_diffs_test(ds, snapshots)
 
-    # get_pool() test
-    p = ds.get_pool()
-
-    # get_connection() test
-    c = snapshots[-1:][0].get_connection()
+    if len(snapshots) > 0:
+        # get connection from last snapshot
+        c = snapshots[-1:][0].pool.connection
 
 
     ds_name_full = f"{pool_name}/{ds_name}"
 
     # Print datasets creation date
-    print(f"{ds_name_full} creation date: {ds.get_creation()}")
+    print(f"{ds_name_full} creation date: {ds.creation}")
 
     # Grab Snapshots
     snapshots = ds.get_snapshots()
 
+    if len(snapshots) > 0:
+        snap=snapshots[0]
 
-    # Get Snapshot Creation date
-    print(f"{ds_name_full}@{snap.name} creation date: {ds.get_creation()}")
+        # Get Snapshot Creation date
+        print(f"{ds_name_full}@{snap.name} creation date: {ds.creation}")
 
-    # Read property from DataSet / Snapshot
-    print(f"{ds_name_full}@{snap.name} usedsnap: {snap.get_property('usedsnap')}")
+        # Read property from DataSet / Snapshot
+        print(f"{ds_name_full}@{snap.name} usedsnap: {snap.get_property('usedsnap')}")
 
 
 def print_all_datasets(pool: zfslib.Pool):
@@ -84,8 +84,8 @@ def print_diffs_test(ds: zfslib.Dataset, snapshots: list):
                 try:
                     if file_is_text(diff.path_full): # Get diff of any text files
                         print('{} - {}'.format(snap.name, diff))
-                        p_left = diff.get_snap_path_left()
-                        p_right = diff.get_snap_path_right()
+                        p_left = diff.snap_path_left
+                        p_right = diff.snap_path_right
 
                         # print('. path left: {}'.format(p_left))
                         # print('. path right: {}'.format(p_right))
@@ -110,8 +110,8 @@ def get_file_diff(diff:zfslib.Diff):
         raise Exception('get_file_diff() is only available for files (file_type = F).')
     if not diff.chg_type == 'M':
         raise Exception('get_file_diff() is only available for modify changes (chg_type = M).')
-    p_left = diff.get_snap_path_left()
-    p_right = diff.get_snap_path_right()
+    p_left = diff.snap_path_left
+    p_right = diff.snap_path_right
 
     cmd = ['diff', '-ubwB', p_left, p_right]
     # print('''Running diff cmd: % diff -ubwB "{}" "{}"'''.format(p_left, p_right))

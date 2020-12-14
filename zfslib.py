@@ -15,6 +15,9 @@
 # Licence: https://opensource.org/licenses/MIT
 #########################################
 
+# TODO:
+# [.] Strip out un-needed code
+
 
 import subprocess, os, itertools, warnings, sys, fnmatch, traceback, pathlib
 from queue import Queue
@@ -22,11 +25,6 @@ from threading import Thread
 from collections import OrderedDict
 from datetime import datetime, time, timedelta
 
-
-
-''' 
-    From (zfstools::connection.py) 
-'''
 
 '''
 ZFS connection classes
@@ -99,12 +97,9 @@ class ZFSConnection:
         self._dirty = True
 
 
-# END tools::connection.py
+''' Models '''
 
 
-''' (from zfs-tools::models.py)
-Tree models for the ZFS tools
-'''
 # ZFSItem is an 'abstract' class for Pool, Dataset and Snapshot
 class ZFSItem(object):
     name = None
@@ -141,23 +136,16 @@ class ZFSItem(object):
         for c in child.children:
             child.remove(c)
 
-    def get_path(self):
-        if not self.parent: return self.name
-        return "%s/%s" % (self.parent.get_path(), self.name)
-
-    def get_pool_name(self):
-        return self.get_pool().name
-
-    def get_pool(self):
+    def _get_pool(self):
         p=self
         while True:
             if isinstance(p, Pool): return p
             p = p.parent
-    pool = property(get_pool)
+    pool = property(_get_pool)
 
     def get_relative_name(self):
         if not self.parent: return self.name
-        return self.get_path()[len(self.parent.get_path()) + 1:]
+        return self.path[len(self.parent.path) + 1:]
 
     def walk(self):
         assert not self.invalidated, "%s invalidated" % self
@@ -177,10 +165,10 @@ class ZFSItem(object):
     # For name, use full dataset path
     def get_dataset(self, name):
         allds = self.get_all_datasets()
-        pool_name = self.get_pool_name()
+        pool_name = self.pool.name
         nfind = name if name.find(pool_name+'/') == 0 else '{}/{}'.format(pool_name, name)
         for dataset in allds:
-            if dataset.get_path() == nfind:
+            if dataset.path == nfind:
                 return dataset
         raise ValueError(name)
         
@@ -198,6 +186,11 @@ class ZFSItem(object):
 
 class Dataset(ZFSItem):
 
+    def _get_path(self):
+        if not self.parent: return self.name
+        return "%s/%s" % (self.parent.path, self.name)
+    path = property(_get_path)
+
     def get_snapshots(self, flt=True):
         if flt is True: flt = lambda _:True
         children = [ c for c in self.children if isinstance(c, Snapshot) and flt(c) ]
@@ -211,12 +204,12 @@ class Dataset(ZFSItem):
 
 
     # find_snapshots(dict) - Query all snapshots in Dataset and optionally filter by: 
-    #  * name: Snapshot name (wildcard supported) 
-    #  * dt_from: datetime to start
-    #  * tdelta: timedelta -or- string of nC where: n is an integer > 0 and C is one of y,m,d,H,M,S. Eg 5H = 5 Hours
-    #  * dt_to: datetime to stop 
-    #  * Date searching is any combination of:
-    #    .  (dt_from --> dt_to) | (dt_from --> dt_from + tdelta) | (dt_to - tdelta --> dt_to)
+    #  - name: Snapshot name (wildcard supported) 
+    #  - dt_from: datetime to start
+    #  - tdelta: timedelta -or- string of nC where: n is an integer > 0 and C is one of y,m,d,H,M,S. Eg 5H = 5 Hours
+    #  - dt_to: datetime to stop 
+    #  - Date searching is any combination of:
+    #      (dt_from --> dt_to) | (dt_from --> dt_from + tdelta) | (dt_to - tdelta --> dt_to)
     def find_snapshots(self, find_opts:dict) -> list:
 
         def __assert(k, types):
@@ -265,22 +258,23 @@ class Dataset(ZFSItem):
     # get_diffs() - Gets Diffs in snapshot or between snapshots (if snap_to is specified)
     # snap_from - Left side of diff
     # snap_to - Right side of diff. If not specified, diff is to current working version
+    # include - list of glob expressions to include (eg ['*_pycache_*'])
     # ignore - list of glob expressions to ignore (eg ['*_pycache_*'])
     # file_type - Filter on the following
-        # B       Block device
-        # C       Character device
-        # /       Directory
-        # >       Door
-        # |       Named pipe
-        # @       Symbolic link
-        # P       Event port
-        # =       Socket
-        # F       Regular file
+    #  - B       Block device
+    #  - C       Character device
+    #  - /       Directory
+    #  - >       Door
+    #  - |       Named pipe
+    #  - @       Symbolic link
+    #  - P       Event port
+    #  - =       Socket
+    #  - F       Regular file
     # chg_type - Filter on the following:
-        # -       The path has been removed
-        # +       The path has been created
-        # M       The path has been modified
-        # R       The path has been renamed
+    #  - -       The path has been removed
+    #  - +       The path has been created
+    #  - M       The path has been modified
+    #  - R       The path has been renamed
     def get_diffs(self, snap_from, snap_to=None, include:list=None, ignore:list=None, file_type:str=None, chg_type:str=None) -> list:
         if snap_from is None or not isinstance(snap_from, Snapshot):
             raise Exception("snap_from must be a Snapshot")
@@ -291,9 +285,9 @@ class Dataset(ZFSItem):
         if not ignore is None and not isinstance(ignore, list):
             raise Exception("ignore must be a list")
 
-        cmd = self.pool.connection.command + ["zfs", "diff", "-FHt", snap_from.get_path()]
+        cmd = self.pool.connection.command + ["zfs", "diff", "-FHt", snap_from.path]
         if snap_to:
-            cmd = cmd + [snap_to.get_path()]
+            cmd = cmd + [snap_to.path]
             snap_left = snap_from
             snap_right = snap_to
         else:
@@ -344,14 +338,14 @@ class Dataset(ZFSItem):
 
         if "/" not in path:
             try: dset = self.get_child(path)
-            except KeyError: raise KeyError("No such dataset %s at %s" % (path, self.get_path()))
+            except KeyError: raise KeyError("No such dataset %s at %s" % (path, self.path))
             if snapshot:
                 try: dset = dset.get_snapshot(snapshot)
-                except KeyError: raise KeyError("No such snapshot %s at %s" % (snapshot, dset.get_path()))
+                except KeyError: raise KeyError("No such snapshot %s at %s" % (snapshot, dset.path))
         else:
             head, tail = path.split("/", 1)
             try: child = self.get_child(head)
-            except KeyError: raise KeyError("No such dataset %s at %s" % (head, self.get_path()))
+            except KeyError: raise KeyError("No such dataset %s at %s" % (head, self.path))
             if snapshot: tail = tail + "@" + snapshot
             dset = child.lookup(tail)
 
@@ -361,7 +355,7 @@ class Dataset(ZFSItem):
     mountpoint = property(lambda self: self.get_property('mountpoint'))
 
     def __str__(self):
-        return "<Dataset:  %s>" % self.get_path()
+        return "<Dataset:  %s>" % self.path
     __repr__ = __str__
 
 
@@ -372,9 +366,14 @@ class Pool(ZFSItem):
         self.children = []
         self._properties = {}
         self.connection = conn
+
+    def _get_path(self):
+        if not self.parent: return self.name
+        return "%s/%s" % (self.parent.path, self.name)
+    path = property(_get_path)
         
     def __str__(self):
-        return "<Pool:     %s>" % self.get_path()
+        return "<Pool:     %s>" % self.path
     __repr__ = __str__
 
 
@@ -384,13 +383,13 @@ class Snapshot(ZFSItem):
     # def _get_dataset(self): return self.parent
     dataset = property(lambda self: self.parent)
 
-    def get_path(self):
+    def _get_path(self):
         if not self.parent: return self.name
-        return "%s@%s" % (self.parent.get_path(), self.name)
+        return "%s@%s" % (self.parent.path, self.name)
+    path = property(_get_path)
 
     # Resolves the path to zfs_snapshot directory (<ds_mount>/.zfs/snapshots/<snapshot>)
-    def get_snap_path(self):
-        return "{}/.zfs/snapshot/{}".format(self.dataset.mountpoint, self.name)
+    snap_path = property(lambda self: "{}/.zfs/snapshot/{}".format(self.dataset.mountpoint, self.name))
 
 
     # Resolves the path to file/dir within the zfs_snapshot directory
@@ -402,7 +401,7 @@ class Snapshot(ZFSItem):
             assert 0, "path must be a non-blank string"
         path = os.path.abspath( pathlib.Path(path).expanduser() )
         path_real = os.path.realpath(path)
-        snap_path_base = self.get_snap_path()
+        snap_path_base = self.snap_path
         ds_mp = self.dataset.mountpoint
         if path_real.find(ds_mp) == -1:
             raise KeyError("Path given is not within the dataset's mountpoint of {}. Path passed: {}".format(ds_mp, path))
@@ -416,12 +415,12 @@ class Snapshot(ZFSItem):
     
 
     def __str__(self):
-        return "<Snapshot: %s>" % self.get_path()
+        return "<Snapshot: %s>" % self.path
     __repr__ = __str__
 
 
 
-class PoolSet(object):  # maybe rewrite this as a dataset or something?
+class PoolSet(object):
     pools = None
 
     def __init__(self, conn:ZFSConnection):
@@ -440,7 +439,7 @@ class PoolSet(object):  # maybe rewrite this as a dataset or something?
             except KeyError: raise KeyError("No such pool %s" % (name))
             if snapshot:
                 try: dset = dset.get_snapshot(snapshot)
-                except KeyError: raise KeyError("No such snapshot %s at %s" % (snapshot, dset.get_path()))
+                except KeyError: raise KeyError("No such snapshot %s at %s" % (snapshot, dset.path))
         else:
             head, tail = path.split("/", 1)
             try: pool = self.pools[head]
@@ -491,7 +490,7 @@ class PoolSet(object):  # maybe rewrite this as a dataset or something?
         creations = OrderedDict([ extract_properties( s ) for s in zfs_r_output.splitlines() if s.strip() ])
 
         # names of pools
-        old_dsets = [ x.get_path() for x in self.walk() ]
+        old_dsets = [ x.path for x in self.walk() ]
         old_dsets.reverse()
         new_dsets = creations.keys()
 
@@ -516,7 +515,7 @@ class PoolSet(object):  # maybe rewrite this as a dataset or something?
                 if snapshot not in [ x.name for x in fs.children ]:
                     fs = Snapshot(snapshot, fs)
 
-            fs._properties.update( creations[fs.get_path()] )
+            fs._properties.update( creations[fs.path] )
             
             (std_used, std_avail, std_ref, std_mount) = std_data[dset]
             # std_avail is avail, std_ref is usedds
@@ -558,122 +557,93 @@ class PoolSet(object):  # maybe rewrite this as a dataset or something?
 
     def __iter__(self):
         return self.walk()
-# END tools::models.py
 
 
 
-''' (from zfs-tools::util.py)
-Miscellaneous utility functions
-'''
 
-def simplify(x):
-    '''Take a list of tuples where each tuple is in form [v1,v2,...vn]
-    and then coalesce all tuples tx and ty where tx[v1] equals ty[v2],
-    preserving v3...vn of tx and discarding v3...vn of ty.
+class Diff():
+    def __init__(self, row:list, snap_left, snap_right):
+        self.no_from_snap=False
+        self.to_present=False
+        if isinstance(snap_left, str) and snap_left == '(na-first)':
+            self.no_from_snap=True
+            snap_left = None
+        elif not isinstance(snap_left, Snapshot):
+            raise KeyError("snap_left must be either a Snapshot or str('na-first'). Got: {}".format(type(snap_left)))
 
-    m = [
-    (1,2,"one"),
-    (2,3,"two"),
-    (3,4,"three"),
-    (8,9,"three"),
-    (4,5,"four"),
-    (6,8,"blah"),
-    ]
-    simplify(x) -> [[1, 5, 'one'], [6, 9, 'blah']]
-    '''
-    y = list(x)
-    if len(x) < 2: return y
-    for idx,o in enumerate(list(y)):
-        for idx2,p in enumerate(list(y)):
-            if idx == idx2: continue
-            if o and p and o[0] == p[1]:
-                y[idx] = None
-                y[idx2] = list(p)
-                y[idx2][0] = p[0]
-                y[idx2][1] = o[1]
-    return [ n for n in y if n is not None ]
+        if isinstance(snap_right, str) and snap_right == '(present)':
+            self.to_present=True
+            snap_right = None
 
-def uniq(seq, idfun=None):
-    '''Makes a sequence 'unique' in the style of UNIX command uniq'''
-    # order preserving
-    if idfun is None:
-        def idfun(x): return x
-    seen = {}
-    result = []
-    for item in seq:
-        marker = idfun(item)
-        # in old Python versions:
-        # if seen.has_key(marker)
-        # but in new ones:
-        if marker in seen: continue
-        seen[marker] = 1
-        result.append(item)
-    return result
+        elif not isinstance(snap_right, Snapshot):
+            raise KeyError("snap_left must be either a Snapshot. Got: {}".format(type(snap_right)))
 
+        if not self.no_from_snap and not self.to_present and snap_left.creation >= snap_right.creation:
+            raise KeyError("diff from creation ({}) is > or = to diff_to creation ({})".format(snap_left.creation, snap_right.creation))
 
-class SpecialPopen(subprocess.Popen):
-    def __init__(self, *a, **kw):
-        self._saved_args = a[0] if kw.get("args") is None else kw.get("args")
-        subprocess.Popen.__init__(self, *a, **kw)
+        self.snap_left = snap_left
+        self.snap_right = snap_right
 
+        if len(row) == 4:
+            (inode_ts, chg_type, file_type, path_l) = row
+            path_r = None
+        elif len(row) == 5:
+            (inode_ts, chg_type, file_type, path_l, path_r) = row
+        else:
+            raise Exeption("Unexpected len: {}. Row = {}".format(len(row), row))
 
-def progressbar(pipe, bufsize=-1, ratelimit=-1):
+        chg_time = datetime.fromtimestamp(int(inode_ts[:inode_ts.find('.')]))
+        self.chg_ts = inode_ts
+        self.chg_time = chg_time
+        self.chg_type = chg_type
+        self.file_type = file_type
+        if file_type == '/':
+            self.file = None
+            self.path = path_l
+            self.path_full = path_l
+        else:
+            (f_l, p_l) = splitPath(path_l)
+            self.file = f_l
+            self.path = p_l
+            self.path_full = path_l
 
-    def clpbar(cmdname):
-        barargs = []
-        if bufsize != -1:
-            barargs = ["-bs", str(bufsize)]
-        if ratelimit != -1:
-            barargs = barargs + ['-th', str(ratelimit)]
-        barprg = SpecialPopen(
-            [cmdname, "-dan"] + barargs,
-            stdin=pipe, stdout=subprocess.PIPE, bufsize=bufsize)
-        return barprg
-
-    def pv(cmdname):
-        barargs = []
-        if bufsize != -1:
-            barargs = ["-B", str(bufsize)]
-        if ratelimit != -1:
-            barargs = barargs + ['-L', str(ratelimit)]
-        barprg = SpecialPopen(
-            [cmdname, "-ptrb"] + barargs,
-            stdin=pipe, stdout=subprocess.PIPE, bufsize=bufsize)
-        return barprg
-
-    barprograms = [
-        ("bar", clpbar),
-        ("clpbar", clpbar),
-        ("pv", pv),
-    ]
-
-    for name, func in barprograms:
-        try:
-            subprocess.call([name, '-h'], stdout=open(os.devnull, "w"), stderr=open(os.devnull, "w"), stdin=open(os.devnull, "r"))
-        except OSError as e:
-            if e.errno == 2: continue
-            assert 0, "not reached while searching for clpbar or pv"
-        return func(name)
-    raise OSError(2, "no such file or directory searching for clpbar or pv")
-
-def stderr(text):
-    """print out something to standard error, followed by an ENTER"""
-    sys.stderr.write(text)
-    sys.stderr.write("\n")
-
-__verbose = False
-def verbose_stderr(*args, **kwargs):
-    global __verbose
-    if __verbose: stderr(*args, **kwargs)
-
-def set_verbose(boolean):
-    global __verbose
-    __verbose = boolean
-# END tools::util.py
+        if file_type == '/':
+            self.file_r = None
+            self.path_r = path_r
+            self.path_r_full = path_r
+        else:
+            (f_r, p_r) = splitPath(path_r) if not path_r is None else (None, None)
+            self.file_r = f_r
+            self.path_r = p_r
+            self.path_r_full = path_r
 
 
+    # Resolves path to resource on left side of diff in zfs_snapshot dir
+    def _get_snap_path_left(self):
+        if self.no_from_snap:
+            raise Exception("Diff does not have a left snapshot because it is the first one. You can check using the no_from_snap property")
+        snap_path = self.snap_left.snap_path
+        return "{}{}".format(snap_path, self.path_full.replace(self.snap_left.dataset.mountpoint, ''))
+    snap_path_left = property(_get_snap_path_left)
 
-# (qcorelite.py - code from my own internal utility)
+
+    # Resolves path to resource on right side of diff in zfs_snapshot dir or working copy
+    def _get_snap_path_right(self):
+        if self.to_present:
+            return self.path_full
+        snap_path = self.snap_right.snap_path
+        return "{}{}".format(snap_path, self.path_full.replace(self.snap_left.dataset.mountpoint, ''))
+    snap_path_right = property(_get_snap_path_right)
+
+
+    def __str__(self):
+        return "<Diff> {0} [{1}][{2}] {3}{4}".format(
+            self.chg_time.strftime("%Y-%m-%d %H:%M:%S")
+            ,self.chg_type, self.file_type
+            ,self.path_full, ('' if not self.path_r_full else ' --> '+self.path_r))
+    __repr__ = __str__
+
+
 
 # Calculates a date range based on tdelta string passed
 # tdelta is a timedelta -or- str(nC) where: n is an integer > 0 and C is one of:
@@ -735,98 +705,21 @@ def splitPath(s):
     p = s[:-(len(f))-1]
     return f, p
 
-# END qcorelite.py
+# Makes a sequence 'unique' in the style of UNIX command uniq
+def uniq(seq, f_id=None):
+    # order preserving
+    f_id = (lambda x:x) if f_id is None else f_id
+    seen = {}
+    r = []
+    for item in seq:
+        marker = f_id(item)
+        if marker in seen: continue
+        seen[marker] = 1
+        r.append(item)
+    return r
 
 
-class Diff():
-    def __init__(self, row:list, snap_left, snap_right):
-        self.no_from_snap=False
-        self.to_present=False
-        if isinstance(snap_left, str) and snap_left == '(na-first)':
-            self.no_from_snap=True
-            snap_left = None
-        elif not isinstance(snap_left, Snapshot):
-            raise KeyError("snap_left must be either a Snapshot or str('na-first'). Got: {}".format(type(snap_left)))
 
-        if isinstance(snap_right, str) and snap_right == '(present)':
-            self.to_present=True
-            snap_right = None
-
-        elif not isinstance(snap_right, Snapshot):
-            raise KeyError("snap_left must be either a Snapshot. Got: {}".format(type(snap_right)))
-
-        if not self.no_from_snap and not self.to_present and snap_left.creation >= snap_right.creation:
-            raise KeyError("diff from creation ({}) is > or = to diff_to creation ({})".format(snap_left.creation, snap_right.creation))
-
-        self.snap_left = snap_left
-        self.snap_right = snap_right
-
-        if len(row) == 4:
-            (inode_ts, chg_type, file_type, path_l) = row
-            path_r = None
-        elif len(row) == 5:
-            (inode_ts, chg_type, file_type, path_l, path_r) = row
-        else:
-            raise Exeption("Unexpected len: {}. Row = {}".format(len(row), row))
-
-        chg_time = datetime.fromtimestamp(int(inode_ts[:inode_ts.find('.')]))
-        self.chg_ts = inode_ts
-        self.chg_time = chg_time
-        self.chg_type = chg_type
-        self.file_type = file_type
-        if file_type == '/':
-            self.file = None
-            self.path = path_l
-            self.path_full = path_l
-        else:
-            (f_l, p_l) = splitPath(path_l)
-            self.file = f_l
-            self.path = p_l
-            self.path_full = path_l
-
-        if file_type == '/':
-            self.file_r = None
-            self.path_r = path_r
-            self.path_r_full = path_r
-        else:
-            (f_r, p_r) = splitPath(path_r) if not path_r is None else (None, None)
-            self.file_r = f_r
-            self.path_r = p_r
-            self.path_r_full = path_r
-
-
-    def get_snap_left(self):
-        return self.snap_left
-
-
-    def get_snap_right(self):
-        return self.snap_right
-
-
-    def get_snap_path_left(self):
-        if self.no_from_snap:
-            raise Exception("Diff does not have a left snapshot because it is the first one. You can check using the no_from_snap property")
-        snap_path = self.snap_left.get_snap_path()
-        # mountp = self.snap_left.parent.get_mountpoint()
-        mountp = self.snap_left.dataset.mountpoint
-        return "{}{}".format(snap_path, self.path_full.replace(mountp, ''))
-
-
-    def get_snap_path_right(self):
-        if self.to_present:
-            return self.path_full
-        snap_path = self.snap_right.get_snap_path()
-        # mountp = self.snap_right.parent.get_mountpoint()
-        mountp = self.snap_right.dataset.mountpoint
-        return "{}{}".format(snap_path, self.path_full.replace(mountp, ''))
-
-
-    def __str__(self):
-        return "<Diff> {0} [{1}][{2}] {3}{4}".format(
-             self.chg_time.strftime("%Y-%m-%d %H:%M:%S")
-            ,self.chg_type, self.file_type
-            ,self.path_full, ('' if not self.path_r_full else ' --> '+self.path_r))
-    __repr__ = __str__
 
 
 
