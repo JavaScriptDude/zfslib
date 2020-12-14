@@ -5,7 +5,7 @@ This code is based on code from [fs-tools by Rudd-O](https://github.com/Rudd-O/z
 
 
 Notable additions so far:
-### <Dataset>.get_snapshots(dict)
+### `<Dataset>.get_snapshots(dict)`
 ```
     # find_snapshots(dict) - Query all snapshots in Dataset and optionally filter by: 
     #  * name: Snapshot name (wildcard supported) 
@@ -16,7 +16,7 @@ Notable additions so far:
     #    .  (dt_from --> dt_to) | (dt_from --> dt_from + tdelta) | (dt_to - tdelta --> dt_to)
     ...
 ```
-### <Dataset>.get_diffs()
+### `<Dataset>.get_diffs()`
 ```
     # get_diffs() - Gets Diffs in snapshot or between snapshots (if snap_to is specified)
     # snap_from - Left side of diff
@@ -40,12 +40,12 @@ Notable additions so far:
         # R       The path has been renamed
 ```
 
-### <Snapshot>.snap_path
+### `<Snapshot>.snap_path`
 ```
     # Returns the path to read only zfs_snapshot directory (<ds_mount>/.zfs/snapshots/<snapshot>)
 ```
 
-### <Snapshot>.resolve_snap_path(path)
+### `<Snapshot>.resolve_snap_path(path)`
 ```
     # Resolves the path to file/dir within the zfs_snapshot dir
     # Returns: tuple(of bool, str) where:
@@ -53,12 +53,12 @@ Notable additions so far:
     # - str = Path to item if found else path to zfs_snapshot dir
 ```
 
-### <Diff>.snap_path_left
+### `<Diff>.snap_path_left`
 ```
     # Path to resource on left side of diff in zfs_snapshot dir
 ```
 
-### <Diff>.snap_path_right
+### `<Diff>.snap_path_right`
 ```
     # Path to resource on right side of diff in .zfs_snapshot dir or working copy
 ```
@@ -74,38 +74,35 @@ ds_name = 'devel'
 
 # Read ZFS information from local computer
 # Change properties as needed
-src_conn = ZFSConnection(host='localhost',properties=["name", "avail", "usedsnap", "usedds", "usedrefreserv", "usedchild", "creation"])
+conn = ZFSConnection(host='localhost',properties=["avail", "usedsnap", "usedds", "usedrefreserv", "usedchild", "creation"])
+
 
 # Load pool
-pool = src_conn.pools.lookup(pool_name)
+poolset = conn.get_poolset()
+pool = poolset.lookup(pool_name)
+
 
 # Load dataset
-ds = pool.get_child(ds_name)
+ds = pool.get_dataset(ds_name)
 
-# Load snapshots by name and date/time range
-snapshots = zfslib.getSnapshots(ds, name='autosnap*', dt_to=datetime.now(), tdelta=timedelta(hours=24))
 
-for snap in snapshots:
-    diffs = zfslib.get_diffs(src_conn, snap_from=snap, ignore=['*.vscod*', '*_pycache_*'])
-    for diff in diffs:
-        print('{} - {}'.format(snap.name, diff))
+# Load snapshots by with name of autosnap* in the last 14 days
+snapshots = ds.find_snapshots({'name': 'autosnap*', 'dt_to': datetime.now(), 'tdelta': '14d'})
 
-ds_name_full = f"{pool_name}/{ds_name}"
 
-# Print datasets creation date
-print(f"{ds_name_full} creation date: {ds.get_creation()}")
-
-# Grab Snapshots
-snapshots = ds.get_snapshots()
-
-# Load snapshot by index or iterate and filter as required
-snap = snapshots[1]
-
-# Get Snapshot Creation date
-print(f"{ds_name_full}@{snap.name} creation date: {ds.get_creation()}")
-
-# Read property from DataSet / Snapshot
-print(f"{ds_name_full}@{snap.name} usedsnap: {snap.get_property('usedsnap')}")
+# Loop through snapshots and analyze diffs
+for i, snap in enumerate(snapshots):
+    if i > 0:
+        # Get Diffs for all files modified with the extension of .py or .js but excluding __pycache__
+        diffs = ds.get_diffs(snap_last, snap, file_type='F', chg_type='M', include=['*.py', '*.js'], ignore=['*_pycache_*'])
+        for diff in diffs:
+            if file_is_text(diff.path_full): # Get diff of any text files
+                print('{} - {}'.format(snap.name, diff))
+                p_left = diff.snap_path_left
+                p_right = diff.snap_path_right
+                # Do whatever you want here.
+                
+    snap_last = snap
 
 
 ```
