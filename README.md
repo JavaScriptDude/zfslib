@@ -3,7 +3,7 @@ ZFS Libraries for Python
 
 Python library for reading from ZFS Pools. Capable of reading, Pools, Datasets, Snapshots and Diffs. This library is still in the early phase of development.
 
-This code is based on code from [fs-tools by Rudd-O](https://github.com/Rudd-O/zfs-tools).
+This code is based on code from [zfs-tools by Rudd-O](https://github.com/Rudd-O/zfs-tools).
 
 
 Notable additions so far:
