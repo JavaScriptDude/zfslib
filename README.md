@@ -16,7 +16,6 @@ Notable additions so far:
     #  - dt_to: datetime to stop 
     #  - Date searching is any combination of:
     #      (dt_from --> dt_to) | (dt_from --> dt_from + tdelta) | (dt_to - tdelta --> dt_to)
-    ...
 ```
 ### `<Dataset>.get_diffs()`
 ```
