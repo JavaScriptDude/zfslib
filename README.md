@@ -8,12 +8,12 @@ Notable additions so far:
 ### `<Dataset>.get_snapshots(dict)`
 ```
     # find_snapshots(dict) - Query all snapshots in Dataset and optionally filter by: 
-    #  * name: Snapshot name (wildcard supported) 
-    #  * dt_from: datetime to start
-    #  * tdelta: timedelta -or- string of nC where: n is an integer > 0 and C is one of y,m,d,H,M,S. Eg 5H = 5 Hours
-    #  * dt_to: datetime to stop 
-    #  * Date searching is any combination of:
-    #    .  (dt_from --> dt_to) | (dt_from --> dt_from + tdelta) | (dt_to - tdelta --> dt_to)
+    #  - name: Snapshot name (wildcard supported) 
+    #  - dt_from: datetime to start
+    #  - tdelta: timedelta -or- string of nC where: n is an integer > 0 and C is one of y,m,d,H,M,S. Eg 5H = 5 Hours
+    #  - dt_to: datetime to stop 
+    #  - Date searching is any combination of:
+    #      (dt_from --> dt_to) | (dt_from --> dt_from + tdelta) | (dt_to - tdelta --> dt_to)
     ...
 ```
 ### `<Dataset>.get_diffs()`
@@ -24,20 +24,20 @@ Notable additions so far:
     # include - list of glob expressions to include (eg ['*_pycache_*'])
     # ignore - list of glob expressions to ignore (eg ['*_pycache_*'])
     # file_type - Filter on the following
-        # B       Block device
-        # C       Character device
-        # /       Directory
-        # >       Door
-        # |       Named pipe
-        # @       Symbolic link
-        # P       Event port
-        # =       Socket
-        # F       Regular file
+    #  - B       Block device
+    #  - C       Character device
+    #  - /       Directory
+    #  - >       Door
+    #  - |       Named pipe
+    #  - @       Symbolic link
+    #  - P       Event port
+    #  - =       Socket
+    #  - F       Regular file
     # chg_type - Filter on the following:
-        # -       The path has been removed
-        # +       The path has been created
-        # M       The path has been modified
-        # R       The path has been renamed
+    #  - -       The path has been removed
+    #  - +       The path has been created
+    #  - M       The path has been modified
+    #  - R       The path has been renamed
 ```
 
 ### `<Snapshot>.snap_path`
