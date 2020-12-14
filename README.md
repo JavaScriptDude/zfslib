@@ -1,7 +1,17 @@
 # zfslib
 ZFS Libraries for Python
 
-Python library for reading from ZFS Pools. Capable of reading, Pools, Datasets, Snapshots and Diffs. This library is still in the early phase of development.
+Python library for reading from ZFS Pools. Capable of reading, Pools, Datasets, Snapshots and Diffs. This library is still quite new but will eventually be published as a python package once some implementations are completed on my own end. 
+
+Tools I plan on writing based on this:
+* Tool to list file diffs over time in excel format with date, time, file, path, ext, lines_rem, lines_add, meld_cmd_str.
+  * A similar tool has been written for SVN already and is very useful for auditing SVC repos.
+* Command line utility for ZFS 
+  * maybe `zfscli get_snap_path -d yyyy-mm-dd <file_or_dir>` which would automatically resolve the path to a snapshot closest to the date given.
+    * Implementations:
+      * Loading Diff: `diff "<path_to_file>" "$(zfscli get_snap_path -d yyyy-mm-dd <path_to_file>)"` 
+      * Open a read only copy at a date `xdg-open "$(zfscli get_snap_path -d yyyy-mm-dd <path_to_file>)"`
+      * Open a read only copy at a snapshot `xdg-open "$(zfscli get_snap_path -s <snapshot> <path_to_file>)"`
 
 This code is based on code from [zfs-tools by Rudd-O](https://github.com/Rudd-O/zfs-tools).
 
