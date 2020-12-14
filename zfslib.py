@@ -16,13 +16,11 @@
 #########################################
 
 
-import subprocess, os, itertools, warnings, sys, fnmatch, traceback, magic
+import subprocess, os, itertools, warnings, sys, fnmatch, traceback, pathlib
 from queue import Queue
 from threading import Thread
 from collections import OrderedDict
 from datetime import datetime, time, timedelta
-from unidiff import PatchSet
-
 
 
 
@@ -115,6 +113,8 @@ class ZFSItem(object):
     parent = None
     invalidated = False
 
+    creation = property(lambda self: datetime.fromtimestamp(int(self._properties["creation"])))
+
     def __init__(self, name, parent=None):
         self.name = name
         self.children = []
@@ -153,10 +153,7 @@ class ZFSItem(object):
         while True:
             if isinstance(p, Pool): return p
             p = p.parent
-            
-    def get_connection(self):
-        p = self.get_pool()
-        return p.connection
+    pool = property(get_pool)
 
     def get_relative_name(self):
         if not self.parent: return self.name
@@ -175,8 +172,7 @@ class ZFSItem(object):
     def get_property(self, name):
         return self._properties[ name ]
     
-    def get_creation(self):
-        return datetime.fromtimestamp(int(self._properties["creation"]))
+    
 
     # For name, use full dataset path
     def get_dataset(self, name):
@@ -247,7 +243,7 @@ class Dataset(ZFSItem):
 
         def __fil_dt(snap):
             if not __fil_n(snap): return False
-            cdate = snap.get_creation()
+            cdate = snap.creation
             if cdate < dt_f: return False
             if cdate > dt_t: return False
             return True
@@ -295,7 +291,7 @@ class Dataset(ZFSItem):
         if not ignore is None and not isinstance(ignore, list):
             raise Exception("ignore must be a list")
 
-        cmd = self.get_connection().command + ["zfs", "diff", "-FHt", snap_from.get_path()]
+        cmd = self.pool.connection.command + ["zfs", "diff", "-FHt", snap_from.get_path()]
         if snap_to:
             cmd = cmd + [snap_to.get_path()]
             snap_left = snap_from
@@ -361,8 +357,8 @@ class Dataset(ZFSItem):
 
         return dset
 
-    def get_mountpoint(self):
-        return self.get_property('mountpoint')
+    
+    mountpoint = property(lambda self: self.get_property('mountpoint'))
 
     def __str__(self):
         return "<Dataset:  %s>" % self.get_path()
@@ -384,17 +380,41 @@ class Pool(ZFSItem):
 
 
 class Snapshot(ZFSItem):
-    # def __init__(self,name):
-        # Dataset.__init__(self,name)
+
+    # def _get_dataset(self): return self.parent
+    dataset = property(lambda self: self.parent)
+
     def get_path(self):
         if not self.parent: return self.name
         return "%s@%s" % (self.parent.get_path(), self.name)
 
+    # Resolves the path to zfs_snapshot directory (<ds_mount>/.zfs/snapshots/<snapshot>)
     def get_snap_path(self):
-        ds = self.parent
-        mpoint = ds.get_property('mountpoint')
-        return "{}/.zfs/snapshot/{}".format(mpoint, self.name)
+        return "{}/.zfs/snapshot/{}".format(self.dataset.mountpoint, self.name)
+
+
+    # Resolves the path to file/dir within the zfs_snapshot directory
+    # Returns: tuple(of bool, str) where:
+    # - bool = True if item is found
+    # - str = Path to item if found else path to zfs_snapshot directory
+    def resolve_snap_path(self, path):
+        if path is None or not isinstance(path, str) or path.strip() == '':
+            assert 0, "path must be a non-blank string"
+        path = os.path.abspath( pathlib.Path(path).expanduser() )
+        path_real = os.path.realpath(path)
+        snap_path_base = self.get_snap_path()
+        ds_mp = self.dataset.mountpoint
+        if path_real.find(ds_mp) == -1:
+            raise KeyError("Path given is not within the dataset's mountpoint of {}. Path passed: {}".format(ds_mp, path))
+        snap_path = "{}{}".format(snap_path_base, path_real.replace(ds_mp, ''))
+        if os.path.exists(snap_path):
+            return (True, snap_path)
+        else:
+            return (False, snap_path_base)
+
+
     
+
     def __str__(self):
         return "<Snapshot: %s>" % self.get_path()
     __repr__ = __str__
@@ -429,6 +449,7 @@ class PoolSet(object):  # maybe rewrite this as a dataset or something?
             dset = pool.lookup(tail)
 
         return dset
+
 
     def parse_zfs_r_output(self, zfs_r_output, zfs_def_output, properties = None):
         """Parse the output of tab-separated zfs list.
@@ -697,9 +718,9 @@ def calcDateRange(tdelta, dt_from:datetime=None, dt_to:datetime=None) -> tuple:
         elif c == 'd':
             td = timedelta(days=n)
         elif c == 'm':
-            td = timedelta(months=n)
+            td = timedelta(days=(n*30.4))
         elif c == 'y':
-            td = timedelta(years=n)
+            td = timedelta(days=(n*365))
         else:
             raise Exception('Unexpected datetime identifier, expecting one of y,m,d,H,M,S.')
     
@@ -734,8 +755,8 @@ class Diff():
         elif not isinstance(snap_right, Snapshot):
             raise KeyError("snap_left must be either a Snapshot. Got: {}".format(type(snap_right)))
 
-        if not self.no_from_snap and not self.to_present and snap_left.get_creation() >= snap_right.get_creation():
-            raise KeyError("diff from creation ({}) is > or = to diff_to creation ({})".format(snap_left.get_creation(), snap_right.get_creation()))
+        if not self.no_from_snap and not self.to_present and snap_left.creation >= snap_right.creation:
+            raise KeyError("diff from creation ({}) is > or = to diff_to creation ({})".format(snap_left.creation, snap_right.creation))
 
         self.snap_left = snap_left
         self.snap_right = snap_right
@@ -747,8 +768,6 @@ class Diff():
             (inode_ts, chg_type, file_type, path_l, path_r) = row
         else:
             raise Exeption("Unexpected len: {}. Row = {}".format(len(row), row))
-
-
 
         chg_time = datetime.fromtimestamp(int(inode_ts[:inode_ts.find('.')]))
         self.chg_ts = inode_ts
@@ -775,76 +794,32 @@ class Diff():
             self.path_r = p_r
             self.path_r_full = path_r
 
-    def get_is_text(self):
-        f = magic.Magic(mime=True, uncompress=False)
-        mime =  f.from_file(self.get_snap_path_left())
-        return (mime == 'text/plain')
 
     def get_snap_left(self):
         return self.snap_left
 
+
     def get_snap_right(self):
         return self.snap_right
+
 
     def get_snap_path_left(self):
         if self.no_from_snap:
             raise Exception("Diff does not have a left snapshot because it is the first one. You can check using the no_from_snap property")
         snap_path = self.snap_left.get_snap_path()
-        mountp = self.snap_left.parent.get_mountpoint()
+        # mountp = self.snap_left.parent.get_mountpoint()
+        mountp = self.snap_left.dataset.mountpoint
         return "{}{}".format(snap_path, self.path_full.replace(mountp, ''))
+
 
     def get_snap_path_right(self):
         if self.to_present:
             return self.path_full
         snap_path = self.snap_right.get_snap_path()
-        mountp = self.snap_right.parent.get_mountpoint()
+        # mountp = self.snap_right.parent.get_mountpoint()
+        mountp = self.snap_right.dataset.mountpoint
         return "{}{}".format(snap_path, self.path_full.replace(mountp, ''))
 
-    def get_file_diff(self):
-        if not self.file_type == 'F':
-            raise Exception('get_file_diff() is only available for files (file_type = F).')
-        if not self.chg_type == 'M':
-            raise Exception('get_file_diff() is only available for modify changes (chg_type = M).')
-        p_left = self.get_snap_path_left()
-        p_right = self.get_snap_path_right()
-
-        cmd = ['diff', '-ubwB', p_left, p_right]
-        # print('''Running diff cmd: % diff -ubwB "{}" "{}"'''.format(p_left, p_right))
-
-        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        stdout, stderr = p.communicate()
-
-        if p.returncode > 1:
-            print("!!!!!! Warning. Return code !=0 `{}`: {}. Code: {}".format(cmd, stderr, p.returncode))
-            return (0,0, stderr)
-
-        elif len(stderr) > 0:
-            # return code is > 1 (no error), but there is a message in stderr
-            print("`{}` return code is 0 but had stderr msg: {}".format(cmd, stderr))
-
-        if p.returncode == 0:
-            return (0, 0, None)
-
-        if stdout == None:
-            print('WARNING - stdout is None!')
-            return (0, 0, "stdout is None")
-
-        elif len(stdout) == 0: 
-            print('WARNING - len(stdout) = 0!')
-            return (0, 0, "stdout len is 0")
-
-        stdout = stdout.decode('utf-8')
-        add = 0
-        rem = 0
-        for line in stdout.splitlines():
-            c = line[0]
-            if c == '+':
-                add = add + 1
-            elif c == '-':
-                rem = rem + 1
-
-        return (add, rem, None)
-        
 
     def __str__(self):
         return "<Diff> {0} [{1}][{2}] {3}{4}".format(
