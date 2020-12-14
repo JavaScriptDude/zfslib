@@ -67,14 +67,14 @@ See `test.py` for sample code
 
 
 ```python
-from connection import ZFSConnection
+import zfslib
 
 pool_name = 'rpool'
 ds_name = 'devel'
 
 # Read ZFS information from local computer
 # Change properties as needed
-conn = ZFSConnection(host='localhost',properties=["avail", "usedsnap", "usedds", "usedrefreserv", "usedchild", "creation"])
+conn = zfslib.ZFSConnection(host='localhost',properties=["avail", "usedsnap", "usedds", "usedrefreserv", "usedchild", "creation"])
 
 
 # Load pool
