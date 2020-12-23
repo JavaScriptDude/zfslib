@@ -1,4 +1,21 @@
 # zfslib
+
+[![PyPI](https://img.shields.io/pypi/v/zfslib.svg)](https://pypi.org/project/zfslib/)
+[![Changelog](https://img.shields.io/github/v/release/simonw/zfslib?label=changelog)](https://github.com/JavaScriptDude/zfslib/releases)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](https://github.com/JavaScriptDude/zfslib/blob/main/LICENSE)
+
+Demonstrating https://github.com/JavaScriptDude/zfslib
+
+## Installation
+
+Install this plugin using `pip`:
+
+    $ pip install zfslib
+
+## Usage
+
+See examples
+
 ZFS Libraries for Python
 
 Python library for reading from ZFS Pools. Capable of reading, Pools, Datasets, Snapshots and Diffs. This library is still quite new but will eventually be published as a python package once some implementations are completed on my own end. 
