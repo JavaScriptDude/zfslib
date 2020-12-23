@@ -1,7 +1,7 @@
 # zfslib
 
 [![PyPI](https://img.shields.io/pypi/v/zfslib.svg)](https://pypi.org/project/zfslib/)
-[![Changelog](https://img.shields.io/github/v/release/simonw/zfslib?label=changelog)](https://github.com/JavaScriptDude/zfslib/releases)
+[![Changelog](https://img.shields.io/github/v/release/simonw/zfslib?label=changelog)](https://github.com/JavaScriptDude/zfslib/changelog)
 [![License: GPL v3](https://img.shields.io/badge/License-GPL%20v3-blue.svg)](http://www.gnu.org/licenses/gpl-3.0)
 
 ZFS Libraries for Python
