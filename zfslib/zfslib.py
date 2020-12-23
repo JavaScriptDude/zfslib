@@ -15,7 +15,7 @@ from datetime import datetime, time, timedelta
 '''
 ZFS connection classes
 '''
-class ZFSConnection:
+class Connection:
     host = None
     _poolset = None
     _dirty = True
@@ -152,7 +152,7 @@ class ZFSItem(object):
 
 
 class Pool(ZFSItem):
-    def __init__(self, name, conn:ZFSConnection):
+    def __init__(self, name, conn:Connection):
         self.name = name
         self.children = []
         self._properties = {}
@@ -446,7 +446,7 @@ class Snapshot(ZFSItem):
 class PoolSet(object):
     pools = None
 
-    def __init__(self, conn:ZFSConnection):
+    def __init__(self, conn:Connection):
         self.connection=conn
         self.pools = {}
 
