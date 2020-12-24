@@ -1,1 +1,1 @@
-import zfslib
+from .zfslib import *

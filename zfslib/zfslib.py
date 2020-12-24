@@ -7,6 +7,9 @@
 # Licence: https://opensource.org/licenses/GPL-3.0
 #########################################
 
+# TODO - Go through with these steps:
+# https://packaging.python.org/tutorials/packaging-projects/
+
 import subprocess, os, fnmatch, pathlib
 from collections import OrderedDict
 from datetime import datetime, time, timedelta
@@ -279,7 +282,7 @@ class Dataset(ZFSItem):
 
     # get_diffs() - Gets Diffs in snapshot or between snapshots (if snap_to is specified)
     # snap_from - Left side of diff
-    # snap_to - Right side of diff. If not specified, diff is to current working version
+    # snap_to - Right side of diff. If not specified, diff is to working copy
     # include - list of glob expressions to include (eg ['*_pycache_*'])
     # exclude - list of glob expressions to exclude (eg ['*_pycache_*'])
     # file_type - Filter on the following
