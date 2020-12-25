@@ -14,7 +14,33 @@ Install this plugin using `pip`:
 
 See examples folder
 
+## Sample code
 
+```
+    import zfslib as zfs
+
+    # Read ZFS information from local computer
+    # For remote computer access, see [zfs-tools by Rudd-O](https://github.com/Rudd-O/zfs-tools) from which this library was based
+    conn = zfs.Connection(host='localhost',properties=["avail"])
+
+
+    # Load pool
+    poolset = conn.get_poolset()
+    pool = poolset.lookup('dpool')
+
+
+    # Load dataset
+    ds = pool.get_dataset('vcmain')
+
+    # Load snapshots by with name of autosnap* that fall between the dates of 2020-12-20 and 2020-12-24
+    snapshots = ds.find_snapshots({'name': 'autosnap*', 'date_from': '2020-12-20', 'date_to': '2020-12-24'})
+
+    # Get all the changes file modification diffs for files that end with .py and .js excluding those in __pycache__ between the first and second snapshots
+    diffs = ds.get_diffs(snapshots[0], snapshots[1], file_type='F', chg_type='M', include=['*.py', '*.js'], ignore=['*_pycache_*'])
+
+    # Get Path to a file in the Snapshot folder (under mountpoint/.zfs/snapshots):
+    snap_path = snapshots[0].resolve_snap_path('<path_to_some_local_file_in_ZFS>')
+```
 
 ## Some Key Features
 ### `<Dataset>.find_snapshots(dict)`
@@ -80,51 +106,7 @@ See examples folder
     # Path to resource on right side of diff in .zfs_snapshot dir or working copy
 ```
 
-See `test.py` for sample code
-
-
-```python
-import zfslib as zfs
-
-pool_name = 'rpool'
-ds_name = 'devel'
-
-# Read ZFS information from local computer
-# Change properties as needed
-conn = zfs.Connection(host='localhost',properties=["avail", "usedsnap", "usedds", "usedrefreserv", "usedchild", "creation"])
-
-
-# Load pool
-poolset = conn.get_poolset()
-pool = poolset.lookup(pool_name)
-
-
-# Load dataset
-ds = pool.get_dataset(ds_name)
-
-
-# Load snapshots by with name of autosnap* in the last 14 days
-snapshots = ds.find_snapshots({'name': 'autosnap*', 'tdelta': '14d'})
-
-
-# Loop through snapshots and analyze diffs
-for i, snap in enumerate(snapshots):
-    if i > 0:
-        # Get Diffs for all files modified with the extension of .py or .js but excluding __pycache__
-        diffs = ds.get_diffs(snap_last, snap, file_type='F', chg_type='M', include=['*.py', '*.js'], ignore=['*_pycache_*'])
-        for diff in diffs:
-            if file_is_text(diff.path_full): # Get diff of any text files
-                print('{} - {}'.format(snap.name, diff))
-                p_left = diff.snap_path_left # Path to snapshot of file on left of diff
-                p_right = diff.snap_path_right # Path to snapshot of file on right of diff
-                # Do whatever you want here.
-                # eg subprocess.check_call(["diff", "-c", p_left, p_right)
-                # -or- subprocess.check_call(["meld", p_left, p_right)
-                
-    snap_last = snap
-
-
-```
+See `test.py` for more sample code
 
 
 Credits: This code is based heavily on [zfs-tools by Rudd-O](https://github.com/Rudd-O/zfs-tools).
