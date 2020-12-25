@@ -20,7 +20,8 @@ See examples folder
     import zfslib as zfs
 
     # Read ZFS information from local computer
-    # For remote computer access, see [zfs-tools by Rudd-O](https://github.com/Rudd-O/zfs-tools) from which this library was based
+    # For remote computer access see [zfs-tools by Rudd-O](https://github.com/Rudd-O/zfs-tools) 
+    # from which this library was heavily based
     conn = zfs.Connection(host='localhost',properties=["avail"])
 
 
@@ -32,14 +33,29 @@ See examples folder
     # Load dataset
     ds = pool.get_dataset('vcmain')
 
-    # Load snapshots by with name of autosnap* that fall between the dates of 2020-12-20 and 2020-12-24
-    snapshots = ds.find_snapshots({'name': 'autosnap*', 'date_from': '2020-12-20', 'date_to': '2020-12-24'})
+    # Load snapshots by with name of autosnap* that fall between 
+    # the dates of 2020-12-20 and 2020-12-24
+    snapshots = ds.find_snapshots({
+        'name': 'autosnap*', 'date_from': '2020-12-20', 'date_to': '2020-12-24'
+    })
 
-    # Get all the changes file modification diffs for files that end with .py and .js excluding those in __pycache__ between the first and second snapshots
-    diffs = ds.get_diffs(snapshots[0], snapshots[1], file_type='F', chg_type='M', include=['*.py', '*.js'], ignore=['*_pycache_*'])
+    # Get all the changes file modification diffs for files that end with .py and .js 
+    # excluding those in __pycache__ between the first and second snapshots
+    diffs = ds.get_diffs(
+         snapshots[0], snapshots[1]
+        ,file_type='F', chg_type='M'
+        ,include=['*.py', '*.js']
+        ,ignore=['*_pycache_*']
+    )
 
     # Get Path to a file in the Snapshot folder (under mountpoint/.zfs/snapshots):
-    snap_path = snapshots[0].resolve_snap_path('<path_to_some_local_file_in_ZFS>')
+    find_path = '<path_to_some_local_file_in_ZFS>'
+    (exists, snap_path) = snapshots[0].resolve_snap_path(find_path)
+    if exists:
+        print('snap_path: {}'.format(snap_path))
+    else: # file did not exist at time of snapshot creation
+        print('File not found in snapshot: {}'.format(find_path))
+
 ```
 
 ## Some Key Features
