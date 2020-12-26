@@ -6,29 +6,30 @@
 # Home: https://github.com/JavaScriptDude/zfslib
 # Licence: https://opensource.org/licenses/GPL-3.0
 #########################################
+# TODO:
+# [.] Restrict any functionality that only works on local zfs
 
-# TODO - Go through with these steps:
-# https://packaging.python.org/tutorials/packaging-projects/
-
-import subprocess, os, fnmatch, pathlib
+import subprocess
+import os
+import fnmatch
+import pathlib
 from collections import OrderedDict
-from datetime import datetime, time, timedelta
+from datetime import datetime, timedelta
 
 
-'''
-ZFS connection classes
-'''
+# ZFS connection classes
 class Connection:
     host = None
     _poolset = None
     _dirty = True
     _trust = False
     _properties = None
-    def __init__(self,host="localhost", trust=False, sshcipher=None, properties=None, identityfile=None, knownhostsfile=None, verbose=False):
+
+    def __init__(self, host="localhost", trust=False, sshcipher=None, properties=None, identityfile=None, knownhostsfile=None, verbose=False):
         self.host = host
         self._trust = trust
         self._properties = properties if properties else []
-        self._poolset= PoolSet(self)
+        self._poolset = PoolSet(self)
         self.verbose = verbose
         self._pools_loaded = False
         if host in ['localhost','127.0.0.1']:
@@ -46,8 +47,9 @@ class Connection:
                 self.command.extend(["-o","UserKnownHostsFile=%s" % knownhostsfile])
             self.command.extend([self.host])
 
-    def get_poolset(self):
-        if self._dirty:
+    # Data is cached unless force=True or snapshots have been made since last read
+    def get_poolset(self, force:bool=False):
+        if force or  self._dirty:
             properties = [ 'creation' ] + self._properties
             stdout2 = subprocess.check_output(self.command + ["zfs", "list", "-Hpr", "-o", ",".join( ['name'] + properties ), "-t", "all"])
 
@@ -65,8 +67,6 @@ class Connection:
         subprocess.check_call(self.command + ["zfs", "snapshot", "-r" ] + plist + [ "%s@%s" % (name, snapshotname)])
         self._dirty = True
 
-
-''' Models '''
 
 
 # ZFSItem is an 'abstract' class for Pool, Dataset and Snapshot
@@ -674,6 +674,7 @@ class Diff():
             ,self.chg_type, self.file_type
             ,self.path_full, ('' if not self.path_r_full else ' --> '+self.path_r))
     __repr__ = __str__
+
 
 
 # Will resolve Pool and Datastore for a path on local filesystem using the mountpoint
