@@ -6,8 +6,6 @@
 # Home: https://github.com/JavaScriptDude/zfslib
 # Licence: https://opensource.org/licenses/GPL-3.0
 #########################################
-# TODO:
-# [.] Restrict any functionality that only works on local zfs
 
 import subprocess
 import os
@@ -23,12 +21,11 @@ class Connection:
     _poolset = None
     _dirty = True
     _trust = False
-    _properties = None
+    _props_last = None
 
-    def __init__(self, host="localhost", trust=False, sshcipher=None, properties=None, identityfile=None, knownhostsfile=None, verbose=False):
+    def __init__(self, host="localhost", trust=False, sshcipher=None, identityfile=None, knownhostsfile=None, verbose=False):
         self.host = host
         self._trust = trust
-        self._properties = properties if properties else []
         self._poolset = PoolSet(self)
         self.verbose = verbose
         self._pools_loaded = False
@@ -47,18 +44,15 @@ class Connection:
                 self.command.extend(["-o","UserKnownHostsFile=%s" % knownhostsfile])
             self.command.extend([self.host])
 
-    # Data is cached unless force=True or snapshots have been made since last read
-    def get_poolset(self, force:bool=False):
-        if force or  self._dirty:
-            properties = [ 'creation' ] + self._properties
-            stdout2 = subprocess.check_output(self.command + ["zfs", "list", "-Hpr", "-o", ",".join( ['name'] + properties ), "-t", "all"])
 
-            cmd = self.command + ["zfs", "list", "-Hpr"]
-            # print("cmd = {}".format(' '.join(cmd)))
-            stdout_def = subprocess.check_output(cmd)
-
-            self._poolset.parse_zfs_r_output(stdout2,stdout_def,properties)
+    # Data is cached unless force=True, snapshots have been made since last read
+    # or properties is different
+    def load_poolset(self, properties:list=[], force:bool=False):
+        if force or self._dirty or not self._props_last == properties:
+            self._poolset._load(properties)
             self._dirty = False
+            self._props_last = properties
+
         return self._poolset
 
 
@@ -66,6 +60,148 @@ class Connection:
         plist = sum( map( lambda x: ['-o', '%s=%s' % x ], properties.items() ), [] )
         subprocess.check_call(self.command + ["zfs", "snapshot", "-r" ] + plist + [ "%s@%s" % (name, snapshotname)])
         self._dirty = True
+
+
+
+class PoolSet(object):
+    _pools = None
+    items = property(lambda self: [self._pools[p] for p in self._pools if True])
+
+    def __init__(self, conn:Connection):
+        self.connection=conn
+        self._pools = {}
+
+    def get_pool(self, name) -> 'Pool':
+        p = self.lookup(name)
+        assert isinstance(p, Pool), "Item passed is not a pool name. Got: %s" % p
+        return p
+
+    # Lookup any type in poolset including: Pool, Dataset, Snapshot
+    # Eg. for snapshots: <pool>/<dataset_path>@<snapshot>
+    def lookup(self, name):
+        if "@" in name:
+            path, snapshot = name.split("@")
+        else:
+            path = name
+            snapshot = None
+
+        if "/" not in path:
+            try: ret = self._pools[path]
+            except KeyError: raise KeyError("No such pool %s" % (name))
+            if snapshot:
+                try: ret = ret.get_snapshot(snapshot)
+                except KeyError: raise KeyError("No such snapshot %s at %s" % (snapshot, ret.path))
+        else:
+            head, tail = path.split("/", 1)
+            try: pool = self._pools[head]
+            except KeyError: raise KeyError("No such pool %s" % (head))
+            if snapshot: tail = tail + "@" + snapshot
+            ret = pool.lookup(tail)
+
+        return ret
+
+
+    def _load(self, props:list= None):
+        _pdef=['name', 'creation'] 
+        props = _pdef + [s for s in props if not s in _pdef]
+
+        _base_cmd = self.connection.command
+
+        # Load zfs list std output data which includes mountpoint
+        zfs_def_output = subprocess.check_output(_base_cmd + ["zfs", "list", "-Hpr"])
+
+        std_rows = [ \
+            ( (s.decode('utf-8') if isinstance(s, bytes) else s).strip().split('\t') ) \
+            for s in zfs_def_output.splitlines() \
+            if True \
+        ]
+        std_data={}
+        for std_row in std_rows:
+            if len(std_row) == 5:
+                (std_name, std_used, std_avail, std_ref, std_mount) = std_row
+            else:
+                raise Exception("Unexpected length returned by command: 'zfs list -Hpr'. Row returned: {}".format(std_row))
+            std_data[std_name] = (std_used, std_avail, std_ref, std_mount)
+
+
+
+        def extract_properties(s):
+            s = s.decode('utf-8') if isinstance(s, bytes) else s
+            items = s.strip().split( '\t' )
+            assert len( items ) == len( props ), (props, items)
+            propvalues = map( lambda x: None if x == '-' else x, items[ 1: ] )
+            return [ items[ 0 ], zip( props[ 1: ], propvalues ) ]
+
+        # make into array
+        zfs_list_output = subprocess.check_output(_base_cmd + ["zfs", "list", "-Hpr", "-o", ",".join( props ), "-t", "all"])
+        creations = OrderedDict([ extract_properties( s ) for s in zfs_list_output.splitlines() if s.strip() ])
+
+        # names of pools
+        old_dsets = [ x.path for x in self.walk() ]
+        old_dsets.reverse()
+        new_dsets = creations.keys()
+
+        for dset in new_dsets:
+            if "@" in dset:
+                dset, snapshot = dset.split("@")
+            else:
+                snapshot = None
+            if "/" not in dset:  # pool name
+                if dset not in self._pools:
+                    self._pools[dset] = Pool(dset, self.connection)
+                    fs = self._pools[dset]
+            poolname, pathcomponents = dset.split("/")[0], dset.split("/")[1:]
+            fs = self._pools[poolname]
+            for pcomp in pathcomponents:
+                # traverse the child hierarchy or create if that fails
+                try: fs = fs.get_child(pcomp)
+                except KeyError:
+                    fs = Dataset(pcomp, fs)
+
+            if snapshot:
+                if snapshot not in [ x.name for x in fs.children ]:
+                    fs = Snapshot(snapshot, fs)
+
+            fs._properties.update( creations[fs.path] )
+            
+            (std_used, std_avail, std_ref, std_mount) = std_data[dset]
+            # std_avail is avail, std_ref is usedds
+            fs._properties['mountpoint'] = std_mount
+            fs._properties['used'] = std_used
+
+
+        for dset in old_dsets:
+            if dset not in new_dsets:
+                if "/" not in dset and "@" not in dset:  # a pool
+                    self.remove(dset)
+                else:
+                    d = self.lookup(dset)
+                    d.parent.remove(d)
+
+
+    def remove(self, name):  # takes a NAME, unlike the child that is taken in the remove of the dataset method
+        for c in self._pools[name].children:
+            self._pools[name].remove(c)
+        self._pools[name].invalidated = True
+        del self._pools[name]
+
+
+    def __getitem__(self, name):
+        return self._pools[name]
+
+
+    def __str__(self):
+        return "<PoolSet at %s>" % id(self)
+    __repr__ = __str__
+
+
+    def walk(self):
+        for item in self._pools.values():
+            for dset in item.walk():
+                yield dset
+
+    def __iter__(self):
+        return self.walk()
 
 
 
@@ -160,6 +296,31 @@ class Pool(ZFSItem):
         self.children = []
         self._properties = {}
         self.connection = conn
+
+
+    # Lookup for Datasets or Snapshot by dataset relative path
+    # Eg. for snapshots: <dataset_path>@<snapshot>
+    def lookup(self, name):
+        if "@" in name:
+            path, snapshot = name.split("@")
+        else:
+            path = name
+            snapshot = None
+
+        if "/" not in path:
+            try: ret = self.get_child(path)
+            except KeyError: raise KeyError("No such dataset %s at %s" % (path, self.path))
+            if snapshot:
+                try: ret = ret.get_snapshot(snapshot)
+                except KeyError: raise KeyError("No such snapshot %s at %s" % (snapshot, ret.path))
+        else:
+            head, tail = path.split("/", 1)
+            try: child = self.get_child(head)
+            except KeyError: raise KeyError("No such dataset %s at %s" % (head, self.path))
+            if snapshot: tail = tail + "@" + snapshot
+            ret = child.lookup(tail)
+
+        return ret
         
 
     def _get_path(self):
@@ -172,8 +333,8 @@ class Pool(ZFSItem):
     __repr__ = __str__
 
 
-class Dataset(ZFSItem):
 
+class Dataset(ZFSItem):
 
     def __init__(self, name, parent=None):
         super().__init__(name, parent)
@@ -202,6 +363,9 @@ class Dataset(ZFSItem):
             if isinstance(c, Snapshot) and flt(c):
                 res.append( (idx, c, self.path) if index else c )
         return res
+
+    def get_all_snapshots(self):
+        return self.get_snapshots()
 
     def get_snapshot(self, name):
         children = [ c for c in self.get_snapshots() if c.name == name ]
@@ -267,6 +431,10 @@ class Dataset(ZFSItem):
 
         elif not dt_from is None and dt_to is None and tdelta is None:
             (dt_f, dt_t) = (dt_from, datetime.now())
+            f=__fil_dt
+
+        elif not tdelta is None and dt_from is None and dt_to is None:
+            (dt_f, dt_t) = (datetime.now() - buildTimedelta(tdelta), datetime.now())
             f=__fil_dt
 
         else:
@@ -361,8 +529,9 @@ class Dataset(ZFSItem):
 
         return diffs
 
-
-    def lookup(self, name):  # FINISH THIS
+    # Lookup for Datasets or Snapshot by dataset relative path
+    # Eg. for snapshots: <dataset_path>@<snapshot>
+    def lookup(self, name):
         if "@" in name:
             path, snapshot = name.split("@")
         else:
@@ -370,20 +539,23 @@ class Dataset(ZFSItem):
             snapshot = None
 
         if "/" not in path:
-            try: dset = self.get_child(path)
+            try: ret = self.get_child(path)
             except KeyError: raise KeyError("No such dataset %s at %s" % (path, self.path))
             if snapshot:
-                try: dset = dset.get_snapshot(snapshot)
-                except KeyError: raise KeyError("No such snapshot %s at %s" % (snapshot, dset.path))
+                try: ret = ret.get_snapshot(snapshot)
+                except KeyError: raise KeyError("No such snapshot %s at %s" % (snapshot, ret.path))
         else:
             head, tail = path.split("/", 1)
             try: child = self.get_child(head)
             except KeyError: raise KeyError("No such dataset %s at %s" % (head, self.path))
             if snapshot: tail = tail + "@" + snapshot
-            dset = child.lookup(tail)
+            ret = child.lookup(tail)
 
-        return dset
+        return ret
 
+
+    # Return relative path to resource within a dataset
+    # path must be an actual path on the system being analyzed
     def get_rel_path(self, path) -> str:
         p_real = os.path.abspath( pathlib.Path(path).expanduser() )
         p_real = os.path.realpath(p_real)
@@ -395,7 +567,7 @@ class Dataset(ZFSItem):
 
 
     def __str__(self):
-        return "<Dataset:  %s>" % self.path
+        return "<Dataset:  %s> mountpoint: %s" % (self.path, self.mountpoint)
     __repr__ = __str__
 
 
@@ -414,14 +586,15 @@ class Snapshot(ZFSItem):
         return "%s@%s" % (self.parent.path, self.name)
     path = property(_get_path)
 
-    # Resolves the path to zfs_snapshot directory (<ds_mount>/.zfs/snapshots/<snapshot>)
+    # Resolves the path to .zfs/snapshot directory
     snap_path = property(lambda self: "{}/.zfs/snapshot/{}".format(self.dataset.mountpoint, self.name))
 
 
-    # Resolves the path to file/dir within the zfs_snapshot directory
+    # Resolves the path to itm within the .zfs/snapshot directory
     # Returns: tuple(of bool, str) where:
     # - bool = True if item is found
-    # - str = Path to item if found else path to zfs_snapshot directory
+    # - str = Path to item if found else path to .zfs/snapshot directory
+    # eg: (found, rel_path) = snap.resolve_snap_path('<some_path_on_system>')
     def resolve_snap_path(self, path):
         if path is None or not isinstance(path, str) or path.strip() == '':
             assert 0, "path must be a non-blank string"
@@ -438,157 +611,13 @@ class Snapshot(ZFSItem):
             return (False, snap_path_base)
 
 
-    
-
     def __str__(self):
         return "<Snapshot: %s>" % self.path
     __repr__ = __str__
 
 
 
-class PoolSet(object):
-    pools = None
 
-    def __init__(self, conn:Connection):
-        self.connection=conn
-        self.pools = {}
-
-    def get_all_pools(self):
-        r=[]
-        for k in self.pools:
-            r.append(self.pools[k])
-        return r
-
-    def lookup(self, name):
-        if "@" in name:
-            path, snapshot = name.split("@")
-        else:
-            path = name
-            snapshot = None
-
-        if "/" not in path:
-            try: dset = self.pools[path]
-            except KeyError: raise KeyError("No such pool %s" % (name))
-            if snapshot:
-                try: dset = dset.get_snapshot(snapshot)
-                except KeyError: raise KeyError("No such snapshot %s at %s" % (snapshot, dset.path))
-        else:
-            head, tail = path.split("/", 1)
-            try: pool = self.pools[head]
-            except KeyError: raise KeyError("No such pool %s" % (head))
-            if snapshot: tail = tail + "@" + snapshot
-            dset = pool.lookup(tail)
-
-        return dset
-
-
-    def parse_zfs_r_output(self, zfs_r_output, zfs_def_output, properties = None):
-        """Parse the output of tab-separated zfs list.
-
-        properties must be a list of property names expected to be found as
-        tab-separated entries on each line of zfs_r_output after the
-        dataset name and a tab.
-        E.g. if properties passed here was ['creation'], we would expect
-        each zfs_r_output line to look like 'dataset	3249872348'
-        """
-
-
-        #Parse std output
-        def __row(s):
-            s = s.decode('utf-8') if isinstance(s, bytes) else s
-            return s.strip().split( '\t' )
-        std_rows = list(map(lambda s: __row(s), zfs_def_output.splitlines()))
-        std_data={}
-        for std_row in std_rows:
-            if len(std_row) == 5:
-                (std_name, std_used, std_avail, std_ref, std_mount) = std_row
-            else:
-                raise Exception("Unexpected length returned by command: 'zfs list -Hpr'. Row returned: {}".format(std_row))
-            std_data[std_name] = (std_used, std_avail, std_ref, std_mount)
-
-        try:
-            properties = ['name', 'creation'] if properties == None else ['name'] + properties
-        except TypeError:
-            assert 0, repr(properties)
-
-        def extract_properties(s):
-            s = s.decode('utf-8') if isinstance(s, bytes) else s
-            items = s.strip().split( '\t' )
-            assert len( items ) == len( properties ), (properties, items)
-            propvalues = map( lambda x: None if x == '-' else x, items[ 1: ] )
-            return [ items[ 0 ], zip( properties[ 1: ], propvalues ) ]
-
-        # make into array
-        creations = OrderedDict([ extract_properties( s ) for s in zfs_r_output.splitlines() if s.strip() ])
-
-        # names of pools
-        old_dsets = [ x.path for x in self.walk() ]
-        old_dsets.reverse()
-        new_dsets = creations.keys()
-
-        for dset in new_dsets:
-            if "@" in dset:
-                dset, snapshot = dset.split("@")
-            else:
-                snapshot = None
-            if "/" not in dset:  # pool name
-                if dset not in self.pools:
-                    self.pools[dset] = Pool(dset, self.connection)
-                    fs = self.pools[dset]
-            poolname, pathcomponents = dset.split("/")[0], dset.split("/")[1:]
-            fs = self.pools[poolname]
-            for pcomp in pathcomponents:
-                # traverse the child hierarchy or create if that fails
-                try: fs = fs.get_child(pcomp)
-                except KeyError:
-                    fs = Dataset(pcomp, fs)
-
-            if snapshot:
-                if snapshot not in [ x.name for x in fs.children ]:
-                    fs = Snapshot(snapshot, fs)
-
-            fs._properties.update( creations[fs.path] )
-            
-            (std_used, std_avail, std_ref, std_mount) = std_data[dset]
-            # std_avail is avail, std_ref is usedds
-            fs._properties['mountpoint'] = std_mount
-            fs._properties['used'] = std_used
-
-
-        for dset in old_dsets:
-            if dset not in new_dsets:
-                if "/" not in dset and "@" not in dset:  # a pool
-                    self.remove(dset)
-                else:
-                    d = self.lookup(dset)
-                    d.parent.remove(d)
-
-
-    
-
-
-    def remove(self, name):  # takes a NAME, unlike the child that is taken in the remove of the dataset method
-        for c in self.pools[name].children:
-            self.pools[name].remove(c)
-        self.pools[name].invalidated = True
-        del self.pools[name]
-
-
-
-    def __getitem__(self, name):
-        return self.pools[name]
-
-    def __str__(self):
-        return "<PoolSet at %s>" % id(self)
-    __repr__ = __str__
-
-    def walk(self):
-        for item in self.pools.values():
-            for dset in item.walk():
-                yield dset
-
-    def __iter__(self):
-        return self.walk()
 
 
 
@@ -698,54 +727,64 @@ def find_datastore_for_path(poolset:PoolSet, path:str) -> tuple:
     return (pool, ds, p_real, p_rela)
 
 
+# buildTimedelta()
+# Builds timedelta from string:
+# . tdelta is a timedelta -or- str(nC) where: n is an integer > 0 and C is one of:
+#   . y=year, m=month, d=day, H=hour, M=minute, s=second
+def buildTimedelta(tdelta:str) -> timedelta:
+    
+    if not isinstance(tdelta, str):
+        raise KeyError('tdelta must be a string')
+    elif len(tdelta) < 2:
+        raise KeyError('len(tdelta) must be >= 2')
+    n = tdelta[:-1]
+    try:
+        n = int(n)
+        if n < 1: raise KeyError('tdelta must be > 0')
+    except ValueError as ex:
+        raise KeyError('Value passed for tdelta does not contain a number: {}'.format(tdelta))
+    
+    c = tdelta[-1:]
+    if c == 'H':
+        return timedelta(hours=n)
+    elif c == 'M':
+        return timedelta(minutes=n)
+    elif c == 'S':
+        return timedelta(seconds=n)
+    elif c == 'd':
+        return timedelta(days=n)
+    elif c == 'm':
+        return timedelta(months=n)
+    elif c == 'y':
+        return timedelta(years=n)
+    else:
+        raise KeyError('Unexpected datetime identifier, expecting one of y,m,d,H,M,S.')
+
+
+# calcDateRange()
 # Calculates a date range based on tdelta string passed
 # tdelta is a timedelta -or- str(nC) where: n is an integer > 0 and C is one of:
 # . y=year, m=month, d=day, H=hour, M=minute, s=second
 # If dt_from is defined, return tuple: (dt_from, dt_from+tdelta)
 # If dt_to is defined, return tuple: (dt_from-tdelta, dt_to)
-def calcDateRange(tdelta, dt_from:datetime=None, dt_to:datetime=None) -> tuple:
+def calcDateRange(tdelta:str, dt_from:datetime=None, dt_to:datetime=None) -> tuple:
     if dt_from and dt_to:
-        raise Exception('Only one of dt_from or dt_to must be defined')
+        raise KeyError('Only one of dt_from or dt_to must be defined')
     elif (not dt_from and not dt_to):
-        raise Exception('Please specify one of dt_from or dt_to')
+        raise KeyError('Please specify one of dt_from or dt_to')
     elif tdelta is None:
-        raise Exception('tdelta is required')
+        raise KeyError('tdelta is required')
     elif dt_from and not isinstance(dt_from, datetime):
-        raise Exception('dt_from must be  a datetime')
+        raise KeyError('dt_from must be  a datetime')
     elif dt_to and not isinstance(dt_to, datetime):
-        raise Exception('dt_to must be  a datetime')
+        raise KeyError('dt_to must be  a datetime')
 
 
     if isinstance(tdelta, timedelta):
         td = tdelta
-
-    else:
-        if not isinstance(tdelta, str):
-            raise Exception('tdelta must be a string or timedelta')
-        elif len(tdelta) < 2:
-            raise Exception('len(tdelta) must be >= 2')
-        n = tdelta[:-1]
-        try:
-            n = int(n)
-            if n < 1: raise Exception('tdelta must be > 0')
-        except ValueError as ex:
-            raise Exception('Value passed for tdelta does not contain a number: {}'.format(tdelta))
         
-        c = tdelta[-1:]
-        if c == 'H':
-            td = timedelta(hours=n)
-        elif c == 'M':
-            td = timedelta(minutes=n)
-        elif c == 'S':
-            td = timedelta(seconds=n)
-        elif c == 'd':
-            td = timedelta(days=n)
-        elif c == 'm':
-            td = timedelta(days=(n*30.4))
-        elif c == 'y':
-            td = timedelta(days=(n*365))
-        else:
-            raise Exception('Unexpected datetime identifier, expecting one of y,m,d,H,M,S.')
+    else:
+        td = buildTimedelta(tdelta)
     
     if dt_from:
         return (dt_from, (dt_from + td))
@@ -757,18 +796,5 @@ def splitPath(s):
     f = os.path.basename(s)
     p = s[:-(len(f))-1]
     return f, p
-
-# Makes a sequence 'unique' in the style of UNIX command uniq
-def uniq(seq, f_id=None):
-    # order preserving
-    f_id = (lambda x:x) if f_id is None else f_id
-    seen = {}
-    r = []
-    for item in seq:
-        marker = f_id(item)
-        if marker in seen: continue
-        seen[marker] = 1
-        r.append(item)
-    return r
 
 

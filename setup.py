@@ -4,7 +4,7 @@
 from setuptools import setup
 import os
 
-VERSION = "0.3"
+VERSION = "0.4"
 
 
 def get_long_description():
@@ -18,7 +18,7 @@ CLASSIFIERS = [
     'Development Status :: 3 - Alpha',
     'Environment :: Console',
     'Intended Audience :: System Administrators',
-    'License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)',
+    'License :: OSI Approved :: GNU General Public License v3 (GPLv3)',
     'Operating System :: POSIX :: Linux',
     'Programming Language :: Python :: 3 :: Only',
     'Programming Language :: Python :: 3.7',
@@ -38,7 +38,7 @@ setup(
         "CI": "https://github.com/JavaScriptDude/zfslib/actions",
         "Changelog": "https://github.com/JavaScriptDude/zfslib/releases",
     },
-    license="GNU General Public License v3 or later (GPLv3+)",
+    license="GNU General Public License v3 (GPLv3)",
     version=VERSION,
     packages=["zfslib"],
     install_requires=[],

@@ -20,14 +20,14 @@ See examples folder
     import zfslib as zfs
 
     # Read ZFS information from local computer
-    # For remote computer access see [zfs-tools by Rudd-O](https://github.com/Rudd-O/zfs-tools) 
-    # from which this library was heavily based
-    conn = zfs.Connection(host='localhost',properties=["avail"])
+    # For remote computer access, use certificate based ssh authentication 
+    # see `examples/ex_remote.py`
+    conn = zfs.Connection(host='localhost')
 
 
     # Load pool
-    poolset = conn.get_poolset()
-    pool = poolset.lookup('dpool')
+    poolset = conn.load_poolset()
+    pool = poolset.get_pool('dpool')
 
 
     # Load dataset
@@ -47,6 +47,9 @@ See examples folder
         ,include=['*.py', '*.js']
         ,ignore=['*_pycache_*']
     )
+
+    # Load snapshots by with name of autosnap* in the last 12 hours 
+    snapshots = ds.find_snapshots({'name': 'autosnap*', 'tdelta': '12H'})
 
     # Get Path to a file in the Snapshot folder (under mountpoint/.zfs/snapshots):
     find_path = '<path_to_some_local_file_in_ZFS>'
