@@ -10,7 +10,6 @@ def main(argv):
     conn = zfs.Connection(host='localhost')
 
     # Load poolset
-    # Note, name and creation properties are automatically retrieved
     poolset = conn.load_poolset()
 
 

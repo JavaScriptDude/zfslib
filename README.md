@@ -25,10 +25,28 @@ See examples folder
     conn = zfs.Connection(host='localhost')
 
 
-    # Load pool
+    # Load poolset. 
+    # Properties can be queried here with: properties=['prop1','prop2',...]
+    # Default properties: name, creation, mountpoint
     poolset = conn.load_poolset()
-    pool = poolset.get_pool('dpool')
 
+    # Load a pool by name
+    pool = poolset.get_pool('dpool')
+    
+    # Get properties from ZFSItem's (Pool|DataSet|Snapshot)
+    # <ZFSItem>.get_property('<property>')
+    # -also-
+    # <ZFSItem>.path -> str: Full path for item
+    # <ZFSItem>.name -> str: Name of item
+    # <ZFSItem>.creation -> datetime
+    # <dataset>.mountpoint -> str
+    # <dataset|snapshot>.pool -> Pool
+    # <snapshot>.dataset -> DataSet
+    # <ZFSItem>.parent -> ZfsItem
+    # <pool|dataset>.children -> list(of ZfsItem)
+    # . Pools only contain DataSets
+    # . Datasets can contain DataSets and/or Snapshots
+    
 
     # Load dataset
     ds = pool.get_dataset('vcmain')

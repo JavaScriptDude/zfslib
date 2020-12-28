@@ -13,7 +13,6 @@ def main(argv):
     conn = zfs.Connection(host='root@freenas')
 
     # Load poolset
-    # Note, name and creation properties are automatically retrieved
     poolset = conn.load_poolset()
 
 
