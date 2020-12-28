@@ -47,7 +47,7 @@ class Connection:
 
     # Data is cached unless force=True, snapshots have been made since last read
     # or properties is different
-    def load_poolset(self, properties:list=[], force:bool=False):
+    def load_poolset(self, properties:list=[], force:bool=False, _test_data:str=None):
         if force or self._dirty or not self._props_last == properties:
             self._poolset._load(properties)
             self._dirty = False
@@ -101,7 +101,7 @@ class PoolSet(object):
         return ret
 
     # Note: _test_data is for testing only
-    def _load(self, props:list= None, _test_data:tuple=None):
+    def _load(self, props:list= None, _test_data:str=None):
         _pdef=['name', 'creation', 'mountpoint'] 
         props = _pdef + [s for s in props if not s in _pdef]
 
