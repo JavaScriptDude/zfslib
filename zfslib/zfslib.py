@@ -6,6 +6,8 @@
 # Home: https://github.com/JavaScriptDude/zfslib
 # Licence: https://opensource.org/licenses/GPL-3.0
 #########################################
+# TODO:
+# [.] Test cases where a dataset is not mounted and handle appropriately
 
 import subprocess
 import os
@@ -47,9 +49,9 @@ class Connection:
 
     # Data is cached unless force=True, snapshots have been made since last read
     # or properties is different
-    def load_poolset(self, properties:list=[], force:bool=False, _test_data:str=None):
+    def load_poolset(self, properties:list=[], get_mounts:bool=True, force:bool=False, _test_data:str=None):
         if force or self._dirty or not self._props_last == properties:
-            self._poolset._load(properties)
+            self._poolset._load(properties=properties, get_mounts=get_mounts, _test_data=_test_data)
             self._dirty = False
             self._props_last = properties
 
@@ -66,6 +68,7 @@ class Connection:
 class PoolSet(object):
     _pools = None
     items = property(lambda self: [self._pools[p] for p in self._pools if True])
+    have_mounts = False
 
     def __init__(self, conn:Connection):
         self.connection=conn
@@ -99,23 +102,49 @@ class PoolSet(object):
             ret = pool.lookup(tail)
 
         return ret
+    
+    # This is here only for legacy testing capability
+    def parse_zfs_r_output(self, zfs_r_output, properties = None):
+        self._load(get_mounts=False, properties=properties, _test_data=zfs_r_output)
 
     # Note: _test_data is for testing only
-    def _load(self, props:list= None, _test_data:str=None):
-        _pdef=['name', 'creation', 'mountpoint'] 
-        props = _pdef + [s for s in props if not s in _pdef]
+    # get_mounts will automated grabbing of mountpoint and mounted properties and
+    # store flag for downstream code to know that these flags are available
+    def _load(self, get_mounts:bool=True, properties:list=None, _test_data:str=None):
+
+        _pdef=['name', 'creation']
+
+        if properties is None:
+            if get_mounts:
+                _pdef.extend(['mountpoint', 'mounted'])
+                self.have_mounts = True
+            properties = _pdef
+
+        else:
+            if 'mountpoint' in properties and 'mounted' in properties:
+                self.have_mounts = True
+
+            elif get_mounts:
+                _pdef.extend(['mountpoint', 'mounted'])
+                self.have_mounts = True
+
+            else:
+                self.have_mounts = False
+
+            properties = _pdef + [s for s in properties if not s in _pdef]
 
         _base_cmd = self.connection.command
 
         def extract_properties(s):
             s = s.decode('utf-8') if isinstance(s, bytes) else s
             items = s.strip().split( '\t' )
-            assert len( items ) == len( props ), (props, items)
+            assert len( items ) == len( properties ), (properties, items)
             propvalues = map( lambda x: None if x == '-' else x, items[ 1: ] )
-            return [ items[ 0 ], zip( props[ 1: ], propvalues ) ]
+            return [ items[ 0 ], zip( properties[ 1: ], propvalues ) ]
 
         if _test_data is None:
-            zfs_list_output = subprocess.check_output(self.connection.command + ["zfs", "list", "-Hpr", "-o", ",".join( props ), "-t", "all"])
+            zfs_list_output = subprocess.check_output(self.connection.command + ["zfs", "list", "-Hpr", "-o", ",".join( properties ), "-t", "all"])
+
         else: # Use test data
             zfs_list_output = _test_data
 
@@ -125,6 +154,7 @@ class PoolSet(object):
         old_dsets = [ x.path for x in self.walk() ]
         old_dsets.reverse()
         new_dsets = creations.keys()
+        pool_cur = None
 
         for dset in new_dsets:
             if "@" in dset:
@@ -133,7 +163,8 @@ class PoolSet(object):
                 snapshot = None
             if "/" not in dset:  # pool name
                 if dset not in self._pools:
-                    self._pools[dset] = Pool(dset, self.connection)
+                    pool_cur = Pool(dset, self.connection, self.have_mounts)
+                    self._pools[dset] = pool_cur
                     fs = self._pools[dset]
             poolname, pathcomponents = dset.split("/")[0], dset.split("/")[1:]
             fs = self._pools[poolname]
@@ -141,7 +172,7 @@ class PoolSet(object):
                 # traverse the child hierarchy or create if that fails
                 try: fs = fs.get_child(pcomp)
                 except KeyError:
-                    fs = Dataset(pcomp, fs)
+                    fs = Dataset(pcomp, pool_cur, fs)
 
             if snapshot:
                 if snapshot not in [ x.name for x in fs.children ]:
@@ -186,6 +217,17 @@ class PoolSet(object):
         return self.walk()
 
 
+# Wrappers for testing
+class TestPoolSet(PoolSet):
+    def __init__(self):
+        self.connection=TestConnection()
+        self._pools = {}
+
+class TestConnection(Connection):
+    def __init__(self):
+        self.command=[]
+
+
 
 # ZFSItem is an 'abstract' class for Pool, Dataset and Snapshot
 class ZFSItem(object):
@@ -223,13 +265,6 @@ class ZFSItem(object):
         for c in child.children:
             child.remove(c)
 
-    def _get_pool(self):
-        p=self
-        while True:
-            if isinstance(p, Pool): return p
-            p = p.parent
-    pool = property(_get_pool)
-
     def get_relative_name(self):
         if not self.parent: return self.name
         return self.path[len(self.parent.path) + 1:]
@@ -253,8 +288,9 @@ class ZFSItem(object):
     
     # For name, use full dataset path
     def get_dataset(self, name):
+        assert not(isinstance(self, Snapshot)), "get_dataset(name) cannot be used on Snapshot Objects. Use Snapshot.dataset instead."
         allds = self.get_all_datasets()
-        pool_name = self.pool.name
+        pool_name = self.name if isinstance(self, Pool) else self.pool.name
         nfind = name if name.find(pool_name+'/') == 0 else '{}/{}'.format(pool_name, name)
         for dataset in allds:
             if dataset.path == nfind:
@@ -272,13 +308,7 @@ class ZFSItem(object):
         return a
 
 
-class Pool(ZFSItem):
-    def __init__(self, name, conn:Connection):
-        self.name = name
-        self.children = []
-        self._properties = {}
-        self.connection = conn
-
+class Snapable(ZFSItem): # Abstract class for Pools and Datasets
 
     # Lookup for Datasets or Snapshot by dataset relative path
     # Eg. for snapshots: <dataset_path>@<snapshot>
@@ -308,31 +338,10 @@ class Pool(ZFSItem):
     def _get_path(self):
         if not self.parent: return self.name
         return "%s/%s" % (self.parent.path, self.name)
+
     path = property(_get_path)
-        
-    def __str__(self):
-        return "<Pool:     %s>" % self.path
-    __repr__ = __str__
 
 
-
-class Dataset(ZFSItem):
-
-    def __init__(self, name, parent=None):
-        super().__init__(name, parent)
-        self.path = self._get_path()
-        self.dspath = self.path[len(self.pool.name)+1:]
-        self._mountpoint=None
-
-    def _get_mountpoint(self):
-        if self._mountpoint is None:
-            self._mountpoint = self.get_property('mountpoint')
-        return self._mountpoint
-    mountpoint = property(_get_mountpoint)
-
-    def _get_path(self):
-        if not self.parent: return self.name
-        return "%s/%s" % (self.parent.path, self.name)
 
     # if index is True return list(of tuple(int, Snapshot, dataset))
     def get_snapshots(self, flt=True, index=False):
@@ -346,8 +355,10 @@ class Dataset(ZFSItem):
                 res.append( (idx, c, self.path) if index else c )
         return res
 
+
     def get_all_snapshots(self):
         return self.get_snapshots()
+
 
     def get_snapshot(self, name):
         children = [ c for c in self.get_snapshots() if c.name == name ]
@@ -451,6 +462,7 @@ class Dataset(ZFSItem):
     #  - M       The path has been modified
     #  - R       The path has been renamed
     def get_diffs(self, snap_from, snap_to=None, include:list=None, exclude:list=None, file_type=None, chg_type=None) -> list:
+        self.assertHaveMounts()
         if snap_from is None or not isinstance(snap_from, Snapshot):
             raise Exception("snap_from must be a Snapshot")
         if not snap_to is None and not isinstance(snap_to, Snapshot):
@@ -511,34 +523,48 @@ class Dataset(ZFSItem):
 
         return diffs
 
-    # Lookup for Datasets or Snapshot by dataset relative path
-    # Eg. for snapshots: <dataset_path>@<snapshot>
-    def lookup(self, name):
-        if "@" in name:
-            path, snapshot = name.split("@")
-        else:
-            path = name
-            snapshot = None
 
-        if "/" not in path:
-            try: ret = self.get_child(path)
-            except KeyError: raise KeyError("No such dataset %s at %s" % (path, self.path))
-            if snapshot:
-                try: ret = ret.get_snapshot(snapshot)
-                except KeyError: raise KeyError("No such snapshot %s at %s" % (snapshot, ret.path))
-        else:
-            head, tail = path.split("/", 1)
-            try: child = self.get_child(head)
-            except KeyError: raise KeyError("No such dataset %s at %s" % (head, self.path))
-            if snapshot: tail = tail + "@" + snapshot
-            ret = child.lookup(tail)
 
-        return ret
+class Pool(Snapable):
+    def __init__(self, name, conn:Connection, have_mounts:bool):
+        self.name = name
+        self.children = []
+        self._properties = {}
+        self.connection = conn
+        self.have_mounts = have_mounts
+
+        
+    def __str__(self):
+        return "<Pool:     %s>" % self.path
+
+    __repr__ = __str__
+
+
+
+class Dataset(Snapable):
+
+    def __init__(self, name, pool:Pool, parent=None):
+        super().__init__(name, parent)
+        self._mountpoint=None
+        self.pool=pool
+        self.dspath = self.path[len(pool.name)+1:]
+
+    def _get_mountpoint(self):
+        if self._mountpoint is None:
+            self.assertHaveMounts()
+            self._mountpoint = self.get_property('mountpoint')
+        return self._mountpoint
+    mountpoint = property(_get_mountpoint)
+
+    # def _get_path(self):
+    #     if not self.parent: return self.name
+    #     return "%s/%s" % (self.parent.path, self.name)
 
 
     # Return relative path to resource within a dataset
     # path must be an actual path on the system being analyzed
     def get_rel_path(self, path) -> str:
+        self.assertHaveMounts()
         p_real = os.path.abspath( pathlib.Path(path).expanduser() )
         p_real = os.path.realpath(p_real)
         mp = self.mountpoint
@@ -547,9 +573,16 @@ class Dataset(ZFSItem):
         return p_real.replace(mp, '')
     
 
+    def assertHaveMounts(self):
+        assert self.pool.have_mounts, "Mount information not loaded. Please use Connection.load_poolset(get_mounts=True)."
+
 
     def __str__(self):
-        return "<Dataset:  %s> mountpoint: %s" % (self.path, self.mountpoint)
+        if self.pool.have_mounts:
+            return "<Dataset:  %s> mountpoint: %s" % (self.path, self.mountpoint)
+        else:
+            return "<Dataset:  %s>" % (self.path)
+
     __repr__ = __str__
 
 
@@ -563,13 +596,20 @@ class Snapshot(ZFSItem):
     # def _get_dataset(self): return self.parent
     dataset = property(lambda self: self.parent)
 
+    pool = property(lambda self: self.parent.pool)
+
     def _get_path(self):
         if not self.parent: return self.name
         return "%s@%s" % (self.parent.path, self.name)
     path = property(_get_path)
 
     # Resolves the path to .zfs/snapshot directory
-    snap_path = property(lambda self: "{}/.zfs/snapshot/{}".format(self.dataset.mountpoint, self.name))
+    def get_snap_path(self):
+        self.dataset.assertHaveMounts()
+        return "{}/.zfs/snapshot/{}".format(self.dataset.mountpoint, self.name)
+    snap_path = property(get_snap_path)
+
+    
 
 
     # Resolves the path to itm within the .zfs/snapshot directory
@@ -578,6 +618,7 @@ class Snapshot(ZFSItem):
     # - str = Path to item if found else path to .zfs/snapshot directory
     # eg: (found, rel_path) = snap.resolve_snap_path('<some_path_on_system>')
     def resolve_snap_path(self, path):
+        self.dataset.assertHaveMounts()
         if path is None or not isinstance(path, str) or path.strip() == '':
             assert 0, "path must be a non-blank string"
         path = os.path.abspath( pathlib.Path(path).expanduser() )
@@ -596,6 +637,11 @@ class Snapshot(ZFSItem):
     def __str__(self):
         return "<Snapshot: %s>" % self.path
     __repr__ = __str__
+
+
+    # Legacy Shims
+    def get_path(self):
+        return self._get_path()
 
 
 
@@ -691,6 +737,7 @@ class Diff():
 # Will resolve Pool and Datastore for a path on local filesystem using the mountpoint
 # returns (Pool, DataStore, Real_Path, Relative_Path)
 def find_datastore_for_path(poolset:PoolSet, path:str) -> tuple:
+    assert poolset.have_mounts, "Mount information not loaded. Please use Connection.load_poolset(get_mounts=True)."
     p_real = os.path.abspath( pathlib.Path(path).expanduser() )
     p_real = os.path.realpath(p_real)
     pool=ds=mp=p_rela=None
