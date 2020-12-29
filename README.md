@@ -29,7 +29,10 @@ See examples folder
 
     # Load poolset. 
     # Properties can be queried here with: properties=['prop1','prop2',...]
-    # Default properties: name, creation, mountpoint
+    # Default properties: name, creation
+    # If get_mounts=True, mountpoint and mounted are also retrieved automatically
+    # unlocking some functionality
+    # To see all available properties use: % zfs list -o foo
     poolset = conn.load_poolset()
 
     # Load a pool by name
@@ -44,6 +47,7 @@ See examples folder
     # <dataset>.mountpoint -> str
     # <dataset|snapshot>.pool -> Pool
     # <snapshot>.dataset -> DataSet
+    # <dataset>.dspath -> str: Dataset path excluding pool name
     # <ZFSItem>.parent -> ZfsItem
     # <pool|dataset>.children -> list(of ZfsItem)
     # . Pools only contain DataSets

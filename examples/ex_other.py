@@ -13,10 +13,10 @@ def main(argv):
     conn = zfs.Connection(host='localhost')
 
     # Load poolset
-    # Note: the following properties are automatically 
-    # retrieved: 'name','creation','used','available','referenced','mountpoint'
+    # Note: the properties name and creation are automatically retrieved
+    # If get_mounts=True, mountpoint and mounted are also retrieved automatically
     # To see all available properties use: % zfs list -o foo
-    poolset = conn.load_poolset(properties=["avail", "usedsnap", "usedrefreserv", "usedchild"])
+    poolset = conn.load_poolset(get_mounts=True, properties=["avail", "usedsnap", "usedrefreserv", "usedchild"])
 
 
     # Print all datasets test
@@ -41,6 +41,7 @@ def main(argv):
     # Get Snapshot path
     path_to_find = '/dpool/vcmain/py/zfs'
     for i, snap in enumerate(snapshots):
+        print(snap.snap_path)
         if i > 0:
             diffs = ds.get_diffs(snap_last, snap, file_type='F', chg_type='M', include=['*.py', '*.js'], exclude=['*.vscod*', '*_pycache_*'])
             if len(diffs) > 0:

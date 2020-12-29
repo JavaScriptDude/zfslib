@@ -6,14 +6,14 @@ from datetime import datetime, timedelta
 def print_all_datasets(pool: zfs.Pool):
     allds = pool.get_all_datasets(with_depth=True)
     for (depth, ds) in allds:
-        print("{}: {} {} ({}) - [{}]".format(pool.name, ' .'*depth, ds.name, ds.name, ds.get_property('mountpoint')))
+        print("{}: {} {} ({})".format(pool.name, ' .'*depth, ds.name, ds.dspath))
 
 
 
 def print_all_datasets(pool: zfs.Pool):
     allds = pool.get_all_datasets(with_depth=True)
     for (depth, ds) in allds:
-        print("{}: {} {} ({}) - [{}]".format(pool.name, ' .'*depth, ds.name, ds.name, ds.get_property('mountpoint')))
+        print("{}: {} {} ({})".format(pool.name, ' .'*depth, ds.name, ds.dspath))
 
 
 # This can be very slow for large datasets. Its actually `zfs diff` thats the slow part

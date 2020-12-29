@@ -24,6 +24,7 @@ def main(argv):
     p = poolset.get_pool('dpool')
     ds = p.get_dataset('vcmain')
     all_snaps = ds.get_all_snapshots()
+    
     if len(all_snaps) == 0:
         print('No snapshots found for dataset: {}'.format(ds))
     else:
