@@ -13,6 +13,7 @@ import subprocess
 import os
 import fnmatch
 import pathlib
+import inspect
 from collections import OrderedDict
 from datetime import datetime, timedelta
 
@@ -247,18 +248,20 @@ class ZFSItem(object):
         self._properties = {}
         if parent:
             self.parent = parent
-            self.parent.add_child(self)
+            self.parent._add_child(self)
 
-    def add_child(self, child):
+    def _add_child(self, child):
         self.children.append(child)
         return child
 
+
     def get_child(self, name):
-        child = [ c for c in self.children if c.name == name and isinstance(c, Dataset) ]
+        child = [ c for c in self.children if c.name == name ]
         assert len(child) < 2
         if not child: raise KeyError(name)
         return child[0]
         
+
     def remove(self, child):
         if child not in self.children: raise KeyError(child.name)
         child.invalidated = True
@@ -303,14 +306,14 @@ class Snapable(ZFSItem): # Abstract class for Pools and Datasets
 
         if "/" not in path:
             try: ret = self.get_child(path)
-            except KeyError: raise KeyError("No such dataset %s at %s" % (path, self.path))
+            except KeyError: raise KeyError("No such dataset %s under %s" % (path, self.path))
             if snapshot:
                 try: ret = ret.get_snapshot(snapshot)
-                except KeyError: raise KeyError("No such snapshot %s at %s" % (snapshot, ret.path))
+                except KeyError: raise KeyError("No such snapshot %s under %s" % (snapshot, ret.path))
         else:
             head, tail = path.split("/", 1)
             try: child = self.get_child(head)
-            except KeyError: raise KeyError("No such dataset %s at %s" % (head, self.path))
+            except KeyError: raise KeyError("No such dataset %s under %s" % (head, self.path))
             if snapshot: tail = tail + "@" + snapshot
             ret = child.lookup(tail)
 
@@ -324,17 +327,38 @@ class Snapable(ZFSItem): # Abstract class for Pools and Datasets
     path = property(_get_path)
 
 
+    # For name, use full dataset path
+    def get_dataset(self, name):
+        assert not(isinstance(self, Snapshot)), "get_dataset(name) cannot be used on Snapshot Objects. Use Snapshot.dataset instead."
+        allds = self.get_all_datasets()
+        pool_name = self.name if isinstance(self, Pool) else self.pool.name
+        nfind = name if name.find(pool_name+'/') == 0 else '{}/{}'.format(pool_name, name)
+        for dataset in allds:
+            if dataset.path == nfind:
+                return dataset
+        raise KeyError("Dataset '{}' not found in pool '{}'.".format(name, self.pool.name))
+        
 
-    # if index is True return list(of tuple(int, Snapshot, dataset))
+    # returns list(of str) or if with_depth == True then list(of tuple(of depth, Dataset))
+    def get_all_datasets(self, with_depth:bool=False, depth:int=0):
+        a = []
+        for c in self.children:
+            if isinstance(c, Dataset):
+                a.append( (depth, c) if with_depth else c )
+                a = a + c.get_all_datasets(with_depth=with_depth, depth=depth+1)
+        return a
+
+
+    # if index is True return list(of tuple(int, Snapshot))
     def get_snapshots(self, flt=True, index=False):
         if flt is True: flt = lambda _:True
-        if flt is None:
-            assert 0, "flt must not be None"
+        assert inspect.isfunction(flt), "flt must either be True or a Function. Got: {}".format(type(flt))
+        assert isinstance(index, bool), "index must be a boolean. Got: {}".format(type(index))
         _ds_path = self.path
         res = []
         for idx, c in enumerate(self.children):
             if isinstance(c, Snapshot) and flt(c):
-                res.append( (idx, c, self.path) if index else c )
+                res.append( (idx, c) if index else c )
 
         return res
 
@@ -357,7 +381,9 @@ class Snapable(ZFSItem): # Abstract class for Pools and Datasets
     #  - dt_from: datetime to start
     #  - tdelta: timedelta -or- string of nC where: n is an integer > 0 and C is one of y,m,d,H,M,S. Eg 5H = 5 Hours
     #  - dt_to: datetime to stop 
-    #  - index: (bool) - Return list(tuple(of int, snapshot, dataset)) where int is the index in current snaphot listing for dataset
+    #  - index: (bool) 
+    #  Return: 
+    #  -  list(tuple(of int, snapshot)) where int is the index in current snaphot listing for dataset
     #  Notes:
     #  - Date searching is any combination of:
     #      (dt_from --> dt_to) | (dt_from --> dt_from + tdelta) | (dt_to - tdelta --> dt_to) | (dt_from --> now)
@@ -428,26 +454,7 @@ class Snapable(ZFSItem): # Abstract class for Pools and Datasets
 
 
 
-    # For name, use full dataset path
-    def get_dataset(self, name):
-        assert not(isinstance(self, Snapshot)), "get_dataset(name) cannot be used on Snapshot Objects. Use Snapshot.dataset instead."
-        allds = self.get_all_datasets()
-        pool_name = self.name if isinstance(self, Pool) else self.pool.name
-        nfind = name if name.find(pool_name+'/') == 0 else '{}/{}'.format(pool_name, name)
-        for dataset in allds:
-            if dataset.path == nfind:
-                return dataset
-        raise ValueError("Dataset '{}' not found in pool '{}'.".format(name, self.pool.name))
-        
 
-    # returns list(of str) or if with_depth == True then list(of tuple(of depth, Dataset))
-    def get_all_datasets(self, with_depth:bool=False, depth:int=0):
-        a = []
-        for c in self.children:
-            if isinstance(c, Dataset):
-                a.append( (depth, c) if with_depth else c )
-                a = a + c.get_all_datasets(with_depth=with_depth, depth=depth+1)
-        return a
 
 
 class Pool(Snapable):
@@ -455,6 +462,7 @@ class Pool(Snapable):
         super().__init__(self, name)
         self.connection = conn
         self.have_mounts = have_mounts
+        self.pool = self
 
         
     def __str__(self):
@@ -466,10 +474,13 @@ class Pool(Snapable):
 
 class Dataset(Snapable):
 
+    dspath=None
+    _mountpoint=None
+    _mounted=None
+    
     def __init__(self, pool, name, parent=None):
         super().__init__(pool, name, parent)
         self.dspath = self.path[len(pool.name)+1:]
-        self._mountpoint=None
 
 
     # get_diffs() - Gets Diffs in snapshot or between snapshots (if snap_to is specified)
@@ -562,6 +573,16 @@ class Dataset(Snapable):
         return self._mountpoint
     mountpoint = property(_get_mountpoint)
 
+
+    def _get_mounted(self):
+        if self._mounted is None:
+            self.assertHaveMounts()
+            self._mounted = True if self.get_property('mounted') == 'yes' else False
+        return self._mounted
+    mounted = property(_get_mounted)
+
+    has_mount = property(lambda self: False if self.mountpoint == 'none' else True)
+
     # def _get_path(self):
     #     if not self.parent: return self.name
     #     return "%s/%s" % (self.parent.path, self.name)
@@ -581,12 +602,6 @@ class Dataset(Snapable):
 
     def assertHaveMounts(self):
         assert self.pool.have_mounts, "Mount information not loaded. Please use Connection.load_poolset(get_mounts=True)."
-
-
-
-    def get_relative_name(self):
-        if not self.parent: return self.name
-        return self.path[len(self.parent.path) + 1:]
 
 
     def __str__(self):

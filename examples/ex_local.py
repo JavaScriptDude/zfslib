@@ -1,5 +1,4 @@
 # Basic example for accessing ZFS on local machine
-
 import sys
 import zfslib as zfs
 from zfslib_ex_common import *
