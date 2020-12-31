@@ -15,7 +15,7 @@ import fnmatch
 import pathlib
 import inspect
 from collections import OrderedDict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date as dt_date
 
 
 # ZFS connection classes
@@ -389,24 +389,25 @@ class Snapable(ZFSItem): # Abstract class for Pools and Datasets
     #      (dt_from --> dt_to) | (dt_from --> dt_from + tdelta) | (dt_to - tdelta --> dt_to) | (dt_from --> now)
     def find_snapshots(self, find_opts:dict) -> list:
 
-        def __assert(k, types):
+        def __assert(k, types, default=None, to_datetime=False):
             if k == 'find_opts':
                 v=find_opts
             else:
-                if not k in find_opts: return None
+                if not k in find_opts: return default
                 v = find_opts[k]
-            bOk=False
-            for t in types:
-                if isinstance(v, t): bOk=True
-            assert bOk, 'Invalid type for param {}. Expecting {} but got: {}'.format(k, types, type(v))
+            assert isinstance(v, types), 'Invalid type for param {}. Expecting {} but got: {}'.format(k, types, type(v))
+
+            if to_datetime and not isinstance(v, datetime):
+                return datetime(v.year, v.month, v.day)
             return v
-        find_opts = __assert('find_opts', [dict])
-        name = __assert('name', [str])
-        dt_from = __assert('dt_from', [datetime])
-        dt_to = __assert('dt_to', [datetime])
-        tdelta = __assert('tdelta', [str, timedelta])
-        index = __assert('index', [bool])
-        contains = __assert('contains', [str])
+
+        find_opts = {} if find_opts is None else __assert('find_opts', (dict))
+        name = __assert('name', (str))
+        dt_from = __assert('dt_from', (datetime, dt_date), None, True)
+        dt_to = __assert('dt_to', (datetime, dt_date), None, True)
+        tdelta = __assert('tdelta', (str, timedelta))
+        index = __assert('index', (bool), False)
+        contains = __assert('contains', (str))
 
         if not contains is None:
             if not os.path.exists(contains):
@@ -436,7 +437,16 @@ class Snapable(ZFSItem): # Abstract class for Pools and Datasets
             f=__fil_dt
 
         elif not tdelta is None and dt_from is None and dt_to is None:
-            (dt_f, dt_t) = (datetime.now() - buildTimedelta(tdelta), datetime.now())
+            tdelta = tdelta if isinstance(tdelta, timedelta) else buildTimedelta(tdelta)
+            (dt_f, dt_t) = (datetime.now() - tdelta, datetime.now())
+            f=__fil_dt
+
+        elif not dt_from is None and not dt_to is None:
+            if not tdelta is None:
+                raise KeyError("tdelta cannot be specified when both dt_from and dt_to are specified")
+            if dt_from >= dt_to:
+                raise KeyError("dt_from ({}) must be < dt_to ({})".format(dt_from, dt_to))
+            (dt_f, dt_t) = (dt_from, dt_to)
             f=__fil_dt
 
         else:
@@ -836,12 +846,7 @@ def calcDateRange(tdelta:str, dt_from:datetime=None, dt_to:datetime=None) -> tup
     elif dt_to and not isinstance(dt_to, datetime):
         raise KeyError('dt_to must be  a datetime')
 
-
-    if isinstance(tdelta, timedelta):
-        td = tdelta
-        
-    else:
-        td = buildTimedelta(tdelta)
+    td = tdelta if isinstance(tdelta, timedelta) else buildTimedelta(tdelta)
     
     if dt_from:
         return (dt_from, (dt_from + td))
