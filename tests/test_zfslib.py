@@ -1,5 +1,5 @@
 import unittest
-from datetime import datetime
+from datetime import datetime, timedelta, date as dt_date
 import zfslib as zfs
 from zfslib_test_tools import *
 
@@ -83,9 +83,8 @@ class PoolSetTests(unittest.TestCase):
             self.assertIsInstance(pool, zfs.Pool)
             self.assertEqual(pool.name, pname)
 
-        with self.assertRaises(KeyError):
-            poolset.get_pool('pool')
-            poolset.get_pool('*pool')
+        with self.assertRaises(KeyError): poolset.get_pool('pool')
+        with self.assertRaises(KeyError): poolset.get_pool('*pool')
 
 
     # Test PoolSet.lookup and properties: name
@@ -95,9 +94,8 @@ class PoolSetTests(unittest.TestCase):
         self.assertEqual(pool.name, 'dpool')
 
         # Lookup should fail unless pool name is specified
-        with self.assertRaises(KeyError):
-            poolset.lookup('pool')
-            poolset.lookup('*pool')
+        with self.assertRaises(KeyError): poolset.lookup('pool')
+        with self.assertRaises(KeyError): poolset.lookup('*pool')
 
 
     # Test PoolSet.lookup, ZFSItem.lookup and properties: name, pool, dataset, parent, path, dspath
@@ -127,9 +125,8 @@ class PoolSetTests(unittest.TestCase):
         self.assertIsInstance(ds.parent, zfs.Pool)
 
         # Lookup should fail unless full path to dataset is specified
-        with self.assertRaises(KeyError):
-            poolset.lookup('bpool/*OOT')
-            poolset.lookup('bpool/OOT')
+        with self.assertRaises(KeyError): poolset.lookup('bpool/*OOT')
+        with self.assertRaises(KeyError): poolset.lookup('bpool/OOT')
 
 
     # Test PoolSet.lookup, ZfsItem.lookup, ZfsItem.get_child, and properties: name, pool, dataset, parent, path
@@ -157,10 +154,9 @@ class PoolSetTests(unittest.TestCase):
             self.assertEqual(snap.get_property('creation'), cdate_c)
             
             # Lookup should fail unless full path to snapshot is specified
-            with self.assertRaises(KeyError):
-                poolset.lookup('BOOT/ubuntu_n2qr5q@autozsys_68frge')
-                poolset.lookup('autozsys_68frge')
-                poolset.lookup('@autozsys_68frge')
+            with self.assertRaises(KeyError): poolset.lookup('BOOT/ubuntu_n2qr5q@autozsys_68frge')
+            with self.assertRaises(KeyError): poolset.lookup('autozsys_68frge')
+            with self.assertRaises(KeyError): poolset.lookup('@autozsys_68frge')
 
 
 
@@ -180,16 +176,15 @@ class PoolSetTests(unittest.TestCase):
             self.assertIsInstance(snap, zfs.Snapshot)
 
             # Negative tests
-            with self.assertRaises(KeyError):
-                ds2.get_child('foo')
-                ds3.get_child('bar')
+            with self.assertRaises(KeyError): ds2.get_child('foo')
+            with self.assertRaises(KeyError): ds3.get_child('bar')
 
 
             ds = poolset.lookup('dpool/other')
             self.assertIsInstance(ds, zfs.Dataset)
             s_ts='1608446351'
             self.assertEqual(ds.get_property('creation'), s_ts)
-            self.assertEqual(ds.creation, datetime.fromtimestamp(int(s_ts)))
+            self.assertEqual(ds.creation, dt_from_creation(s_ts))
             self.assertEqual(ds.get_property('used'), '280644734976')
             self.assertEqual(ds.get_property('available'), '3564051083264')
             self.assertEqual(ds.get_property('referenced'), '266918285312')
@@ -242,11 +237,10 @@ class PoolSetTests(unittest.TestCase):
 
         # Negative Tests
         pool = poolset.lookup('rpool')
-        with self.assertRaises(KeyError):
-            pool.get_dataset('foo')
-            pool.get_dataset('ubuntu_n2qr5q/srv')
-            pool.get_dataset('OOT/ubuntu_n2qr5q/srv')
-            pool.get_dataset('*OOT/ubuntu_n2qr5q/srv')
+        with self.assertRaises(KeyError): pool.get_dataset('foo')
+        with self.assertRaises(KeyError): pool.get_dataset('ubuntu_n2qr5q/srv')
+        with self.assertRaises(KeyError): pool.get_dataset('OOT/ubuntu_n2qr5q/srv')
+        with self.assertRaises(KeyError): pool.get_dataset('*OOT/ubuntu_n2qr5q/srv')
 
 
 
@@ -278,15 +272,117 @@ class PoolSetTests(unittest.TestCase):
 
 
         # Negative tests
-        with self.assertRaises(AssertionError):
-            ds.get_snapshots(flt=None)
-            ds.get_snapshots(index='test')
+        with self.assertRaises(AssertionError): ds.get_snapshots(flt=None)
+        with self.assertRaises(AssertionError): ds.get_snapshots(index='test')
+
+
+    def test_snapable_get_snapshot(self):
+        for pool in poolset:
+            self.assertIsInstance(pool, zfs.Pool)
+            all_ds = pool.get_all_datasets(with_depth=True)
+
+            for (depth, ds) in all_ds:
+                snaps = ds.get_all_snapshots()
+                for snap in snaps:
+                    self.assertIsInstance(snap, zfs.Snapshot)
+                    snap2 = snap.dataset.get_snapshot(snap.name)
+                    self.assertIs(snap, snap2)
+
+        # Negative tests
+        ds = poolset.lookup('rpool/ROOT/ubuntu_n2qr5q/var/spool')
+        with self.assertRaises(KeyError): ds.get_snapshot('*utozsys_pfofay')
+        with self.assertRaises(KeyError): ds.get_snapshot('foobar')
+
+    # Notes:
+    # contains flag cannot be tested with static data. Must move to dynamic testing
+    def test_snapable_find_snapshots(self):
+        ds = poolset.lookup('rpool/USERDATA/jbloggs_jb327m')
+        self.assertIsInstance(ds, zfs.Dataset)
+
+        all_snaps = ds.get_all_snapshots()
+        
+        # Empty options
+        snaps = ds.find_snapshots({})
+        self.assertEqual(len(snaps), len(all_snaps))
+
+        # Name only
+        snaps = ds.find_snapshots({'name': '*zsys_w*'})
+        self.assertEqual(len(snaps), 3)
+
+        snaps = ds.find_snapshots({'name': '*'})
+        self.assertEqual(len(snaps), len(all_snaps))
+
+        # Name and dt_from
+        snaps = ds.find_snapshots({'name': '*zsys_*e*'
+            , 'dt_from': dt_from_creation('1609272411')})
+        self.assertEqual(len(snaps), 2)
+
+        # Name and tdelta and dt_to
+        # . Note: tdelta alone cannot be used for static unit testing
+        snaps = ds.find_snapshots({'name': '*zsys_*e*', 'tdelta': timedelta(hours=36)
+            ,'dt_to': dt_from_creation('1609362247')})
+        self.assertEqual(len(snaps), 5)
+        snaps2 = ds.find_snapshots({'name': '*zsys_*e*', 'tdelta': '36H'
+            ,'dt_to': dt_from_creation('1609362247')})
+        self.assertEqual(len(snaps2), len(snaps))
+        for i, snap in enumerate(snaps):
+            self.assertIs(snap, snaps2[i])
+
+        # Name, dt_from and tdelta
+        snaps = ds.find_snapshots({'name': '*zsys_*w*'
+            ,'dt_from': dt_from_creation('1608233673'), 'tdelta': timedelta(hours=48)})
+        self.assertEqual(len(snaps), 5)
+        snaps2 = ds.find_snapshots({'name': '*zsys_*w*'
+            ,'dt_from': dt_from_creation('1608233673'), 'tdelta': '48H'})
+        self.assertEqual(len(snaps2), len(snaps))
+        for i, snap in enumerate(snaps):
+            self.assertIs(snap, snaps2[i])
+
+        # Name, dt_from and dt_to
+        snaps = ds.find_snapshots({'name': '*zsys_*w*'
+            ,'dt_from': dt_from_creation('1608233673')
+            ,'dt_to': dt_from_creation('1608772856')})
+        self.assertEqual(len(snaps), 6)
+
+        # Name, dt_from and dt_to using date instead of datetime
+        snaps = ds.find_snapshots({'name': '*zsys_*w*'
+            ,'dt_from': dt_date(2020, 12, 17)
+            ,'dt_to': dt_date(2020, 12, 23)})
+        self.assertEqual(len(snaps), 5)
+
+        for i, snap in enumerate(snaps):
+            self.assertIsInstance(snap, zfs.Snapshot)
+
+        # Name, dt_from and dt_to using date instead of datetime with index=True
+        snaps = ds.find_snapshots({'name': '*zsys_*w*', "index": True
+            ,'dt_from': dt_date(2020, 12, 17)
+            ,'dt_to': dt_date(2020, 12, 23)})
+        self.assertEqual(len(snaps), 5)
+        self.assertIsInstance(snaps[0], tuple)
+        self.assertEqual(len(snaps[0]), 2)
+        self.assertIsInstance(snaps[0][0], int)
+        self.assertIsInstance(snaps[0][1], zfs.Snapshot)
+
+        with self.assertRaises(TypeError): snaps = ds.find_snapshots()
+        with self.assertRaises(AssertionError): snaps = ds.find_snapshots({'name': True})
+        with self.assertRaises(AssertionError): snaps = ds.find_snapshots({'dt_from': 'asdf'})
+        with self.assertRaises(AssertionError): snaps = ds.find_snapshots({'dt_to': 'asdf'})
+        with self.assertRaises(AssertionError): snaps = ds.find_snapshots({'tdelta': 10})
+        with self.assertRaises(KeyError): snaps = ds.find_snapshots({'tdelta': '-10H'})
+        with self.assertRaises(AssertionError): snaps = ds.find_snapshots({'index': 1})
+        with self.assertRaises(KeyError): 
+            snaps = ds.find_snapshots({'dt_to': dt_date(2020, 12, 20)
+                                     , 'dt_from': dt_date(2020, 12, 21)})
+        with self.assertRaises(KeyError): 
+            snaps = ds.find_snapshots({'dt_to': dt_date(2020, 12, 21)
+                                      ,'dt_from': dt_date(2020, 12, 20)
+                                      ,'tdelta': "1H"})
+
+
 
 
     # TODO:
-    # [.] - Write tests for Snapable.get_snapshot
-    # [.] - Write tests for Snapable.find_snapshots
-    # [.] - Write tests for Dataset.find_snapshots
+    # [.] - Write tests for Dataset.get_diffs
     #       Not sure how to write this it needs dynamic data calls
     # [.] - Write tests for Dataset.get_rel_path
     # [.] - Write tests for Dataset.assertHaveMounts

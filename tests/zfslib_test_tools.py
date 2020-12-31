@@ -1,7 +1,12 @@
 import sys
 import os
 import subprocess
+from datetime import datetime
+import zfslib as zfs
 
+
+def dt_from_creation(creation):
+    return datetime.fromtimestamp(int(creation))
 
 # Loads and validates test data
 def load_test_data(alias, properties):
