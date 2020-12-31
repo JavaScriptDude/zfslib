@@ -14,7 +14,6 @@ poolset = zfs.TestPoolSet()
 poolset.parse_zfs_r_output(zlist_data, properties=properties)
 pool_names = pool_names = [p.name for p in poolset if True]
 
-
 class PoolSetTests(unittest.TestCase):
 
     def test_pool_names(self):
@@ -28,21 +27,54 @@ class PoolSetTests(unittest.TestCase):
             if line.strip() == '': continue
             row = line.split('\t')
             name = row[0]
-            obj = poolset.lookup(name)
+            
             if name.find('@') > -1:
-                self.assertIsInstance(obj, zfs.Snapshot)
-                if not obj.dataset is None:
-                    self.assertIsInstance(obj.dataset, zfs.Dataset)
-                self.assertIsInstance(obj.pool, zfs.Pool)
-                self.assertIsInstance(obj.parent, (zfs.Dataset, zfs.Pool))
+                snap = poolset.lookup(name)
+                self.assertIsInstance(snap, zfs.Snapshot)
+                if not snap.dataset is None:
+                    self.assertIsInstance(snap.dataset, zfs.Dataset)
+                self.assertIsInstance(snap.pool, zfs.Pool)
+                self.assertIsInstance(snap.parent, (zfs.Dataset, zfs.Pool))
+                if name.find('/') > -1:
+                    pool_name = name[:name.find('/')]
+                    ds_path = name[len(pool_name)+1:name.find('@')]
+                else:
+                    pool_name = name[:name.find('@')]
+                    ds_path=None
+                pool = poolset.get_pool(pool_name)
+                self.assertIs(pool, snap.pool)
+
+                if ds_path is None: # Snapshot of pool
+                    self.assertIs(pool, snap.pool)
+                else:
+                    ds1 = poolset.lookup('{}/{}'.format(pool_name, ds_path))
+                    ds2 = pool.lookup(ds_path)
+                    self.assertIs(ds1, ds2)
+                    self.assertIs(ds1, ds2)
+                    self.assertIs(snap.parent, ds1)
+                    
 
             elif name.find('/') > -1:
-                self.assertIsInstance(obj, zfs.Dataset)
-                self.assertIsInstance(obj.pool, zfs.Pool)
-                self.assertIsInstance(obj.parent, (zfs.Dataset, zfs.Pool))
+                ds = poolset.lookup(name)
+                self.assertIsInstance(ds, zfs.Dataset)
+                self.assertIsInstance(ds.pool, zfs.Pool)
+                self.assertIsInstance(ds.parent, (zfs.Dataset, zfs.Pool))
+
+                pool_name = name[:name.find('/')]
+                ds_path = name[len(pool_name)+1:]
+                pool = poolset.get_pool(pool_name)
+                self.assertIsInstance(pool, zfs.Pool)
+                ds2 = pool.lookup(ds_path)
+                ds3 = pool.get_dataset(ds_path)
+                self.assertIs(ds, ds2)
+                self.assertIs(ds2, ds3)
+                self.assertIs(ds.pool, pool)
 
             else:
-                self.assertIsInstance(obj, zfs.Pool)
+                pool = poolset.lookup(name)
+                self.assertIsInstance(pool, zfs.Pool)
+                self.assertIs(pool, poolset.get_pool(name))
+                
 
 
     def test_poolset_get_pool(self):
