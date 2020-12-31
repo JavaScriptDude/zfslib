@@ -283,6 +283,19 @@ class PoolSetTests(unittest.TestCase):
             ds.get_snapshots(index='test')
 
 
+    # TODO:
+    # [.] - Write tests for Snapable.get_snapshot
+    # [.] - Write tests for Snapable.find_snapshots
+    # [.] - Write tests for Dataset.find_snapshots
+    #       Not sure how to write this it needs dynamic data calls
+    # [.] - Write tests for Dataset.get_rel_path
+    # [.] - Write tests for Dataset.assertHaveMounts
+    # [.] - Write tests for Snapshot.get_snap_path
+    # [.] - Write tests for Snapshot.resolve_snap_path
+    #       Note: may need refactoring to make it unit testable
+    # [.] - Write tests for Diff class...
+    # [.] - Write tests for find_dataset_for_path...
+    #       Note: may need refactoring to make it unit testable
 
 
 if __name__ == "__main__":
