@@ -32,60 +32,18 @@ def load_test_data(alias, properties):
         
 
 
-def simplify(x):
-    '''Take a list of tuples where each tuple is in form [v1,v2,...vn]
-    and then coalesce all tuples tx and ty where tx[v1] equals ty[v2],
-    preserving v3...vn of tx and discarding v3...vn of ty.
-    m = [
-    (1,2,"one"),
-    (2,3,"two"),
-    (3,4,"three"),
-    (8,9,"three"),
-    (4,5,"four"),
-    (6,8,"blah"),
-    ]
-    simplify(x) -> [[1, 5, 'one'], [6, 9, 'blah']]
-    '''
-    y = list(x)
-    if len(x) < 2: return y
-    for idx,o in enumerate(list(y)):
-        for idx2,p in enumerate(list(y)):
-            if idx == idx2: continue
-            if o and p and o[0] == p[1]:
-                y[idx] = None
-                y[idx2] = list(p)
-                y[idx2][0] = p[0]
-                y[idx2][1] = o[1]
-    return [ n for n in y if n is not None ]
-
-def uniq(seq, idfun=None):
-    '''Makes a sequence 'unique' in the style of UNIX command uniq'''
-    # order preserving
-    if idfun is None:
-        def idfun(x): return x
-    seen = {}
-    result = []
-    for item in seq:
-        marker = idfun(item)
-        # in old Python versions:
-        # if seen.has_key(marker)
-        # but in new ones:
-        if marker in seen: continue
-        seen[marker] = 1
-        result.append(item)
-    return result
+''' Testing Wrappers '''
+class TestConnection(zfs.Connection):
+    def __init__(self):
+        self.command=[]
 
 
-def stderr(text):
-    """print out something to standard error, followed by an ENTER"""
-    sys.stderr.write(text)
-    sys.stderr.write("\n")
+class TestPoolSet(zfs.PoolSet):
+    def __init__(self):
+        self.connection=TestConnection()
+        self._pools = {}
 
-__verbose = False
-def verbose_stderr(*args, **kwargs):
-    global __verbose
-    if __verbose: stderr(*args, **kwargs)
-
-def set_verbose(boolean):
-    global __verbose
-    __verbose = boolean
+    # This is here only for legacy testing capability
+    def parse_zfs_r_output(self, zfs_r_output, properties = None):
+        self._load(get_mounts=False, properties=properties, _test_data=zfs_r_output)
+''' END Testing Wrappers '''

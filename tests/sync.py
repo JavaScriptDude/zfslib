@@ -99,7 +99,7 @@ def optimize_coalesce(operation_schedule):
         elif opgroup[0][0] == 'incremental':  # incremental
             # 1->2->3->4 => 1->4
             new_ops = [ (srcs, dsts) for _, _, _, srcs, dsts in opgroup ]
-            new_ops = simplify(new_ops)
+            new_ops = zfs.simplify(new_ops)
             for srcs, dsts in new_ops:
                 new.append(tuple(opgroup[0][:3] + (srcs, dsts)))
         else:

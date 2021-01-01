@@ -6,8 +6,6 @@
 # Home: https://github.com/JavaScriptDude/zfslib
 # Licence: https://opensource.org/licenses/GPL-3.0
 #########################################
-# TODO:
-# [.] Test cases where a dataset is not mounted and handle appropriately
 
 import subprocess
 import os
@@ -18,7 +16,6 @@ from collections import OrderedDict
 from datetime import datetime, timedelta, date as dt_date
 
 
-# ZFS connection classes
 class Connection:
     host = None
     _poolset = None
@@ -104,10 +101,6 @@ class PoolSet(object):
 
         return ret
     
-    # This is here only for legacy testing capability
-    def parse_zfs_r_output(self, zfs_r_output, properties = None):
-        self._load(get_mounts=False, properties=properties, _test_data=zfs_r_output)
-
     # Note: _test_data is for testing only
     # get_mounts will automated grabbing of mountpoint and mounted properties and
     # store flag for downstream code to know that these flags are available
@@ -200,6 +193,29 @@ class PoolSet(object):
         del self._pools[name]
 
 
+    # Will resolve Pool and Dataset for a path on local filesystem using the mountpoint
+    # returns (Pool, Dataset, Real_Path, Relative_Path)
+    # Note: Ignores any dataset with root mountpoint (/)
+    def find_dataset_for_path(self, path:str) -> tuple:
+        assert self.have_mounts, "Mount information not loaded. Please use Connection.load_poolset(get_mounts=True)."
+        p_real = os.path.abspath( pathlib.Path(path).expanduser() )
+        p_real = os.path.realpath(p_real)
+        pool=ds=mp=p_rela=None
+        for pool_c in self:
+            datasets = pool_c.get_all_datasets()
+            for ds_c in datasets:
+                if not ds_c.has_mount or ds_c.mountpoint == '/': continue
+                mp_c = ds_c.mountpoint
+                if p_real.find(mp_c) == 0:
+                    if mp is None or len(mp_c) > len(mp):
+                        p_rela = p_real.replace(mp_c, '')
+                        ds = ds_c
+                        pool = pool_c
+                        mp = mp_c
+                        
+        return (ds, p_real, p_rela)
+
+
     def __getitem__(self, name):
         return self._pools[name]
 
@@ -219,17 +235,23 @@ class PoolSet(object):
             yield self._pools[pool]
 
 
-# Wrappers for testing
-class TestPoolSet(PoolSet):
-    def __init__(self):
-        self.connection=TestConnection()
-        self._pools = {}
-
-class TestConnection(Connection):
-    def __init__(self):
-        self.command=[]
 
 
+
+''' ZFS Entities
+
+ Model:
+    <ZFSItem> ⎼⎼⎼⎼⎼⎼⎼⎼⎼⎼⎼⎼⎼⎼⎼⎼o         
+    |                        |         
+    v                        |         
+    <Snapable> ⎼⎼⎼o           |         
+    |            |           |         
+    v            v           v         
+    <Pool>       <Dataset>   <Snapshot> 
+    -----------------------------------
+    <Diff>
+
+'''
 
 # ZFSItem is an 'abstract' class for Pool, Dataset and Snapshot
 class ZFSItem(object):
@@ -330,13 +352,13 @@ class Snapable(ZFSItem): # Abstract class for Pools and Datasets
     # For name, use full dataset path
     def get_dataset(self, name):
         assert not(isinstance(self, Snapshot)), "get_dataset(name) cannot be used on Snapshot Objects. Use Snapshot.dataset instead."
-        allds = self.get_all_datasets()
-        pool_name = self.name if isinstance(self, Pool) else self.pool.name
-        nfind = name if name.find(pool_name+'/') == 0 else '{}/{}'.format(pool_name, name)
-        for dataset in allds:
-            if dataset.path == nfind:
-                return dataset
-        raise KeyError("Dataset '{}' not found in pool '{}'.".format(name, self.pool.name))
+        ds = self.lookup(name)
+        if isinstance(ds, Dataset): return ds
+
+        if isinstance(self, Pool):
+            raise KeyError("Dataset '{}' not found in Pool '{}'.".format(name, self.name))
+        else:
+            raise KeyError("Dataset '{}' not found in Dataset '{}'.".format(name, self.path))
         
 
     # returns list(of str) or if with_depth == True then list(of tuple(of depth, Dataset))
@@ -443,9 +465,9 @@ class Snapable(ZFSItem): # Abstract class for Pools and Datasets
 
         elif not dt_from is None and not dt_to is None:
             if not tdelta is None:
-                raise KeyError("tdelta cannot be specified when both dt_from and dt_to are specified")
+                raise AssertionError("tdelta cannot be specified when both dt_from and dt_to are specified")
             if dt_from >= dt_to:
-                raise KeyError("dt_from ({}) must be < dt_to ({})".format(dt_from, dt_to))
+                raise AssertionError("dt_from ({}) must be < dt_to ({})".format(dt_from, dt_to))
             (dt_f, dt_t) = (dt_from, dt_to)
             f=__fil_dt
 
@@ -459,10 +481,6 @@ class Snapable(ZFSItem): # Abstract class for Pools and Datasets
         
 
         return self.get_snapshots(flt=f, index=index)
-
-
-
-
 
 
 
@@ -496,7 +514,7 @@ class Dataset(Snapable):
     # get_diffs() - Gets Diffs in snapshot or between snapshots (if snap_to is specified)
     # snap_from - Left side of diff
     # snap_to - Right side of diff. If not specified, diff is to working copy
-    # include - list of glob expressions to include (eg ['*_pycache_*'])
+    # include - list of glob expressions to include (eg ['*.py', '*.js'])
     # exclude - list of glob expressions to exclude (eg ['*_pycache_*'])
     # file_type - Filter on the following
     #  - B       Block device
@@ -515,20 +533,22 @@ class Dataset(Snapable):
     #  - R       The path has been renamed
     def get_diffs(self, snap_from, snap_to=None, include:list=None, exclude:list=None, file_type=None, chg_type=None) -> list:
         self.assertHaveMounts()
+        assert self.mounted, "Cannot get diffs for Unmounted Dataset. Verify mounted flag on Dataset before calling"
+
         if snap_from is None or not isinstance(snap_from, Snapshot):
-            raise Exception("snap_from must be a Snapshot")
+            raise AssertionError("snap_from must be a Snapshot")
         if not snap_to is None and not isinstance(snap_to, Snapshot):
-            raise Exception("snap_to must be a Snapshot")
+            raise AssertionError("snap_to must be a Snapshot")
         if not include is None and not isinstance(include, list):
-            raise Exception("snapincludeto must be a list")
+            raise AssertionError("snapincludeto must be a list")
         if not exclude is None and not isinstance(exclude, list):
-            raise Exception("exclude must be a list")
+            raise AssertionError("exclude must be a list")
 
         def __tv(k, v):
             if v is None: return None
             if isinstance(v, str): return [v]
             if isinstance(v, list): return v
-            raise KeyError("{} can only be a str or list. Got: {}".format(k, type(v)))
+            raise AssertionError("{} can only be a str or list. Got: {}".format(k, type(v)))
         file_type = __tv('file_type', file_type)
         chg_type = __tv('chg_type', chg_type)
 
@@ -557,7 +577,7 @@ class Dataset(Snapable):
                 bOk=False
                 for incl in include:
                     if fnmatch.fnmatch(d.path_full, incl) \
-                        or (not d.path_r is None and fnmatch.fnmatch(d.path_r_full, incl)):
+                        or (not d.path_new is None and fnmatch.fnmatch(d.path_full_new, incl)):
                         bOk = True
                         break
                 if not bOk: continue
@@ -567,7 +587,7 @@ class Dataset(Snapable):
                 bIgn = False
                 for excl in exclude:
                     if fnmatch.fnmatch(d.path_full, excl) \
-                        or (not d.path_r is None and fnmatch.fnmatch(d.path_r_full, excl)):
+                        or (not d.path_new is None and fnmatch.fnmatch(d.path_full_new, excl)):
                         bIgn = True
                         break
                 if bIgn: continue
@@ -593,15 +613,12 @@ class Dataset(Snapable):
 
     has_mount = property(lambda self: False if self.mountpoint == 'none' else True)
 
-    # def _get_path(self):
-    #     if not self.parent: return self.name
-    #     return "%s/%s" % (self.parent.path, self.name)
-
 
     # Return relative path to resource within a dataset
     # path must be an actual path on the system being analyzed
     def get_rel_path(self, path) -> str:
         self.assertHaveMounts()
+        assert isinstance(path, str), "argument passed is not a string. Got: {}".format(type(path))
         p_real = os.path.abspath( pathlib.Path(path).expanduser() )
         p_real = os.path.realpath(p_real)
         mp = self.mountpoint
@@ -640,30 +657,37 @@ class Snapshot(ZFSItem):
 
 
     # Resolves the path to .zfs/snapshot directory
-    def get_snap_path(self):
+    def _get_snap_path(self):
+        assert isinstance(self.parent, Dataset), \
+            "This function is only available for Snapshots of Datasets not Pools"
         self.parent.assertHaveMounts()
         return "{}/.zfs/snapshot/{}".format(self.parent.mountpoint, self.name)
-    snap_path = property(get_snap_path)
+    snap_path = property(_get_snap_path)
 
     
 
 
-    # Resolves the path to itm within the .zfs/snapshot directory
+    # Resolves the path to file within the .zfs/snapshot directory
     # Returns: tuple(of bool, str) where:
     # - bool = True if item is found
     # - str = Path to item if found else path to .zfs/snapshot directory
     # eg: (found, rel_path) = snap.resolve_snap_path('<some_path_on_system>')
     def resolve_snap_path(self, path):
+        assert isinstance(self.parent, Dataset), \
+            "This function is only available for Snapshots of Datasets not Pools"
         self.parent.assertHaveMounts()
+        assert self.parent.mounted, \
+            "Parent Dataset {} is not mounted. Please verify datsset.mounted before calling this function".format(self.parent)
+
         if path is None or not isinstance(path, str) or path.strip() == '':
             assert 0, "path must be a non-blank string"
         path = os.path.abspath( pathlib.Path(path).expanduser() )
-        path_real = os.path.realpath(path)
+        path_neweal = os.path.realpath(path)
         snap_path_base = self.snap_path
         ds_mp = self.dataset.mountpoint
-        if path_real.find(ds_mp) == -1:
+        if path_neweal.find(ds_mp) == -1:
             raise KeyError("Path given is not within the dataset's mountpoint of {}. Path passed: {}".format(ds_mp, path))
-        snap_path = "{}{}".format(snap_path_base, path_real.replace(ds_mp, ''))
+        snap_path = "{}{}".format(snap_path_base, path_neweal.replace(ds_mp, ''))
         if os.path.exists(snap_path):
             return (True, snap_path)
         else:
@@ -679,14 +703,29 @@ class Snapshot(ZFSItem):
     def get_path(self):
         return self._get_path()
 
-
-
-
+# END Snapshot
 
 
 
 
 class Diff():
+    FILE_TYPES={
+         'B': 'Block device'
+        ,'C': 'Character device'
+        ,'/': 'Directory'
+        ,'>': 'Door'
+        ,'|': 'Named pipe'
+        ,'@': 'Symbolic link'
+        ,'P': 'Event port'
+        ,'=': 'Socket'
+        ,'F': 'Regular file'
+    }
+    CHANGE_TYPES={
+        '-': 'The path has been removed'
+       ,'+': 'The path has been created'
+       ,'M': 'The path has been modified'
+       ,'R': 'The path has been renamed'
+    }
     def __init__(self, row:list, snap_left, snap_right):
         self.no_from_snap=False
         self.to_present=False
@@ -694,26 +733,26 @@ class Diff():
             self.no_from_snap=True
             snap_left = None
         elif not isinstance(snap_left, Snapshot):
-            raise KeyError("snap_left must be either a Snapshot or str('na-first'). Got: {}".format(type(snap_left)))
+            raise AssertionError("snap_left must be either a Snapshot or str('na-first'). Got: {}".format(type(snap_left)))
 
         if isinstance(snap_right, str) and snap_right == '(present)':
             self.to_present=True
             snap_right = None
 
         elif not isinstance(snap_right, Snapshot):
-            raise KeyError("snap_left must be either a Snapshot. Got: {}".format(type(snap_right)))
+            raise AssertionError("snap_left must be either a Snapshot. Got: {}".format(type(snap_right)))
 
         if not self.no_from_snap and not self.to_present and snap_left.creation >= snap_right.creation:
-            raise KeyError("diff from creation ({}) is > or = to diff_to creation ({})".format(snap_left.creation, snap_right.creation))
+            raise AssertionError("diff from creation ({}) is > or = to diff_to creation ({})".format(snap_left.creation, snap_right.creation))
 
         self.snap_left = snap_left
         self.snap_right = snap_right
 
         if len(row) == 4:
-            (inode_ts, chg_type, file_type, path_l) = row
-            path_r = None
+            (inode_ts, chg_type, file_type, path) = row
+            path_new = None
         elif len(row) == 5:
-            (inode_ts, chg_type, file_type, path_l, path_r) = row
+            (inode_ts, chg_type, file_type, path, path_new) = row
         else:
             raise Exception("Unexpected len: {}. Row = {}".format(len(row), row))
 
@@ -724,26 +763,28 @@ class Diff():
         self.file_type = file_type
         if file_type == '/':
             self.file = None
-            self.path = path_l
-            self.path_full = path_l
+            self.path = path
+            self.path_full = path
         else:
-            (f_l, p_l) = splitPath(path_l)
-            self.file = f_l
-            self.path = p_l
-            self.path_full = path_l
+            (f, p) = splitPath(path)
+            self.file = f
+            self.path = p
+            self.path_full = path
 
         if file_type == '/':
-            self.file_r = None
-            self.path_r = path_r
-            self.path_r_full = path_r
+            self.file_new = None
+            self.path_new = path_new
+            self.path_full_new = path_new
         else:
-            (f_r, p_r) = splitPath(path_r) if not path_r is None else (None, None)
-            self.file_r = f_r
-            self.path_r = p_r
-            self.path_r_full = path_r
+            (f_new, p_new) = splitPath(path_new) if not path_new is None else (None, None)
+            self.file_new = f_new
+            self.path_new = p_new
+            self.path_full_new = path_new
 
+    file_type_full = property(lambda self: Diff.get_file_type(self.file_type))
+    chg_type_full = property(lambda self: Diff.get_change_type(self.chg_type))
 
-    # Resolves path to resource on left side of diff in zfs_snapshot dir
+    # Ressolves path to resource on left side of diff in zfs_snapshot dir
     def _get_snap_path_left(self):
         if self.no_from_snap:
             raise Exception("Diff does not have a left snapshot because it is the first one. You can check using the no_from_snap property")
@@ -757,57 +798,53 @@ class Diff():
         if self.to_present:
             return self.path_full
         snap_path = self.snap_right.snap_path
-        return "{}{}".format(snap_path, self.path_full.replace(self.snap_left.dataset.mountpoint, ''))
+        path_full = self.path_full_new if self.chg_type == 'R' else self.path_full
+        return "{}{}".format(snap_path, path_full.replace(self.snap_left.dataset.mountpoint, ''))
     snap_path_right = property(_get_snap_path_right)
+    
+    @staticmethod
+    def get_file_type(s) -> str:
+        assert (isinstance(s, str) and not s == ''), "argument must be a non-empty string"
+        assert s in Diff.FILE_TYPES, "ZFS Diff File type is invalid: '{}'".format(s)
+        return Diff.FILE_TYPES[s]
 
+    @staticmethod
+    def get_change_type(s) -> str:
+        assert (isinstance(s, str) and not s == ''), "argument must be a non-empty string"
+        assert s in Diff.CHANGE_TYPES, "ZFS Diff Change type is invalid: '{}'".format(s)
+        return Diff.CHANGE_TYPES[s]
 
     def __str__(self):
         return "<Diff> {0} [{1}][{2}] {3}{4}".format(
             self.chg_time.strftime("%Y-%m-%d %H:%M:%S")
             ,self.chg_type, self.file_type
-            ,self.path_full, ('' if not self.path_r_full else ' --> '+self.path_r))
+            ,self.path_full, ('' if not self.path_full_new else ' --> '+self.path_new))
     __repr__ = __str__
 
+''' END ZFS Entities '''
 
 
-# Will resolve Pool and Dataset for a path on local filesystem using the mountpoint
-# returns (Pool, Dataset, Real_Path, Relative_Path)
-def find_dataset_for_path(poolset:PoolSet, path:str) -> tuple:
-    assert poolset.have_mounts, "Mount information not loaded. Please use Connection.load_poolset(get_mounts=True)."
-    p_real = os.path.abspath( pathlib.Path(path).expanduser() )
-    p_real = os.path.realpath(p_real)
-    pool=ds=mp=p_rela=None
-    for pool_c in poolset:
-        datasets = pool_c.get_all_datasets()
-        for ds_c in datasets:
-            mp_c = ds_c.mountpoint
-            if p_real.find(mp_c) == 0:
-                if mp is None or len(mp_c) > len(mp):
-                    p_rela = p_real.replace(mp_c, '')
-                    ds = ds_c
-                    pool = pool_c
-                    mp = mp_c
-                    
-    return (pool, ds, p_real, p_rela)
 
+''' General Utilities '''
 
 # buildTimedelta()
 # Builds timedelta from string:
 # . tdelta is a timedelta -or- str(nC) where: n is an integer > 0 and C is one of:
 #   . y=year, m=month, w=week, d=day, H=hour, M=minute, s=second
 # Note: month and year are imprecise and assume 30.4 and 365 days
-def buildTimedelta(tdelta:str) -> timedelta:
+def buildTimedelta(tdelta) -> timedelta:
+    if isinstance(tdelta, timedelta): return tdelta
     
     if not isinstance(tdelta, str):
-        raise KeyError('tdelta must be a string')
+        raise AssertionError('tdelta must be a string')
     elif len(tdelta) < 2:
-        raise KeyError('len(tdelta) must be >= 2')
+        raise AssertionError('len(tdelta) must be >= 2')
     n = tdelta[:-1]
     try:
         n = int(n)
-        if n < 1: raise KeyError('tdelta must be > 0')
+        if n < 1: raise AssertionError('tdelta must be > 0')
     except ValueError as ex:
-        raise KeyError('Value passed for tdelta does not contain a number: {}'.format(tdelta))
+        raise AssertionError('Value passed for tdelta does not contain a number: {}'.format(tdelta))
     
     c = tdelta[-1:]
     if c == 'H':
@@ -819,13 +856,13 @@ def buildTimedelta(tdelta:str) -> timedelta:
     elif c == 'd':
         return timedelta(days=n)
     elif c == 'm':
-        return timedelta(days=n*30.4)
+        return timedelta(days=n*(365/12))
     elif c == 'w':
         return timedelta(weeks=n)
     elif c == 'y':
         return timedelta(days=n*365)
     else:
-        raise KeyError('Unexpected datetime identifier, expecting one of y,m,w,d,H,M,S.')
+        raise AssertionError('Unexpected datetime identifier, expecting one of y,m,w,d,H,M,S.')
 
 
 # calcDateRange()
@@ -834,19 +871,18 @@ def buildTimedelta(tdelta:str) -> timedelta:
 # . y=year, m=month, w=week, d=day, H=hour, M=minute, s=second
 # If dt_from is defined, return tuple: (dt_from, dt_from+tdelta)
 # If dt_to is defined, return tuple: (dt_from-tdelta, dt_to)
-def calcDateRange(tdelta:str, dt_from:datetime=None, dt_to:datetime=None) -> tuple:
+def calcDateRange(tdelta, dt_from:datetime=None, dt_to:datetime=None) -> tuple:
+    if tdelta is None: raise AssertionError('tdelta is required')
     if dt_from and dt_to:
-        raise KeyError('Only one of dt_from or dt_to must be defined')
+        raise AssertionError('Only one of dt_from or dt_to must be defined')
     elif (not dt_from and not dt_to):
-        raise KeyError('Please specify one of dt_from or dt_to')
-    elif tdelta is None:
-        raise KeyError('tdelta is required')
+        raise AssertionError('Please specify one of dt_from or dt_to')
     elif dt_from and not isinstance(dt_from, datetime):
-        raise KeyError('dt_from must be  a datetime')
+        raise AssertionError('dt_from must be  a datetime')
     elif dt_to and not isinstance(dt_to, datetime):
-        raise KeyError('dt_to must be  a datetime')
+        raise AssertionError('dt_to must be  a datetime')
 
-    td = tdelta if isinstance(tdelta, timedelta) else buildTimedelta(tdelta)
+    td = buildTimedelta(tdelta)
     
     if dt_from:
         return (dt_from, (dt_from + td))
@@ -855,8 +891,56 @@ def calcDateRange(tdelta:str, dt_from:datetime=None, dt_to:datetime=None) -> tup
 
 
 def splitPath(s):
+    assert isinstance(s, str), "String not passed. Got: {}".format(type(s))
+    s = s.strip()
+    assert not s == '', "Empty string passed"
     f = os.path.basename(s)
+    if len(f) == 0: return ('', s[:-1] if s[-1:] == '/' else s)
     p = s[:-(len(f))-1]
     return f, p
 
 
+def simplify(x):
+    '''Take a list of tuples where each tuple is in form [v1,v2,...vn]
+    and then coalesce all tuples tx and ty where tx[v1] equals ty[v2],
+    preserving v3...vn of tx and discarding v3...vn of ty.
+    m = [
+    (1,2,"one"),
+    (2,3,"two"),
+    (3,4,"three"),
+    (8,9,"three"),
+    (4,5,"four"),
+    (6,8,"blah"),
+    ]
+    simplify(x) -> [[1, 5, 'one'], [6, 9, 'blah']]
+    '''
+    y = list(x)
+    if len(x) < 2: return y
+    for idx,o in enumerate(list(y)):
+        for idx2,p in enumerate(list(y)):
+            if idx == idx2: continue
+            if o and p and o[0] == p[1]:
+                y[idx] = None
+                y[idx2] = list(p)
+                y[idx2][0] = p[0]
+                y[idx2][1] = o[1]
+    return [ n for n in y if n is not None ]
+
+def uniq(seq, idfun=None):
+    '''Makes a sequence 'unique' in the style of UNIX command uniq'''
+    # order preserving
+    if idfun is None:
+        def idfun(x): return x
+    seen = {}
+    result = []
+    for item in seq:
+        marker = idfun(item)
+        # in old Python versions:
+        # if seen.has_key(marker)
+        # but in new ones:
+        if marker in seen: continue
+        seen[marker] = 1
+        result.append(item)
+    return result
+
+''' END Utilities '''

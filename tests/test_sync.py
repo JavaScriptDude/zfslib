@@ -20,8 +20,8 @@ class TestRecursiveReplicate(unittest.TestCase):
     maxDiff = None
 
 #     def test_does_nothing(self):
-#         src = zfs.TestPoolSet()
-#         dst = zfs.TestPoolSet()
+#         src = TestPoolSet()
+#         dst = TestPoolSet()
 #         src.parse_zfs_r_output(
 # x('''karen   1359351119
 # karen/ROOT      1359351169
@@ -47,8 +47,8 @@ class TestRecursiveReplicate(unittest.TestCase):
 #         self.assertFalse(result)
 
     def test_replicates_one_snapshot_fully(self):
-        src = zfs.TestPoolSet()
-        dst = zfs.TestPoolSet()
+        src = TestPoolSet()
+        dst = TestPoolSet()
         src.parse_zfs_r_output(
 x('''karen   1359351119
 karen/ROOT      1359351169
@@ -92,8 +92,8 @@ target/karen/plonezeo  1360136643
         )
 
     def test_are_in_sync(self):
-        src = zfs.TestPoolSet()
-        dst = zfs.TestPoolSet()
+        src = TestPoolSet()
+        dst = TestPoolSet()
         src.parse_zfs_r_output(
 x('''karen   1359351119
 karen/ROOT      1359351169
@@ -121,8 +121,8 @@ target/karen/plonezeo@zfs-auto-snap_hourly-2013-03-19-0000     1363676402
         self.assertFalse(result)
 
     def test_replicates_one_snapshot_incrementally(self):
-        src = zfs.TestPoolSet()
-        dst = zfs.TestPoolSet()
+        src = TestPoolSet()
+        dst = TestPoolSet()
         src.parse_zfs_r_output(
 x('''karen   1359351119
 karen/ROOT      1359351169
@@ -159,8 +159,8 @@ target/karen/plonezeo@zfs-auto-snap_hourly-2013-03-19-0000     1363676402
         )
 
     def test_replicates_siblings_incrementally(self):
-        src = zfs.TestPoolSet()
-        dst = zfs.TestPoolSet()
+        src = TestPoolSet()
+        dst = TestPoolSet()
         src.parse_zfs_r_output(
 x('''s   1359351119
 s/a  1360136643
@@ -203,8 +203,8 @@ t/s/b@1     1363676402
         self.assertEqual(expected, sync.optimize_coalesce(real))
 
     def test_replicates_unequal_siblings(self):
-        src = zfs.TestPoolSet()
-        dst = zfs.TestPoolSet()
+        src = TestPoolSet()
+        dst = TestPoolSet()
         src.parse_zfs_r_output(
 x('''s   1359351119
 s/a  1360136643
@@ -265,8 +265,8 @@ t/s/b@1     1363676402
         self.assertEqual(expected_coalesced,real_coalesced)
 
     def test_replicates_recursive_snapshots_with_exceptions(self):
-        src = zfs.TestPoolSet()
-        dst = zfs.TestPoolSet()
+        src = TestPoolSet()
+        dst = TestPoolSet()
         src.parse_zfs_r_output(
 x('''s   1359351119
 s@1     1363676402
@@ -344,8 +344,8 @@ t/s/b@1     1363676402
         self.assertEqual(expected_coalesced,real_coalesced)
 
     def test_replicates_recursive_but_dest_parent_is_not_snapshotted(self):
-        src = zfs.TestPoolSet()
-        dst = zfs.TestPoolSet()
+        src = TestPoolSet()
+        dst = TestPoolSet()
         src.parse_zfs_r_output(\
 x('''s   1359351119
 s@1     1363676402
@@ -430,8 +430,8 @@ t/s/b@1     1363676402
     # this test is the problematic one that causes the optimizer to fail when transforming it
     # into the recursive replication which shadows unsnapshotted children
     def test_replicates_recursive_and_child_of_replicant_has_no_snapshots(self):
-        src = zfs.TestPoolSet()
-        dst = zfs.TestPoolSet()
+        src = TestPoolSet()
+        dst = TestPoolSet()
         src.parse_zfs_r_output(
 x('''s   1359351119
 s@1     1363676402
@@ -593,8 +593,8 @@ t/s/b@1     1363676402
     # this test checks no recursivization happens
     # for create_stub
     def test_replicates_without_recursivizing_stub_creation(self):
-        src = zfs.TestPoolSet()
-        dst = zfs.TestPoolSet()
+        src = TestPoolSet()
+        dst = TestPoolSet()
         src.parse_zfs_r_output(
 x('''s   1359351119
 s/a  1360136643
@@ -669,8 +669,8 @@ t/s   1359351119
 
     # this test failed horribly, so we port it here for more compliance testing
     def test_replicates_complex_datasets(self):
-        src = zfs.TestPoolSet()
-        dst = zfs.TestPoolSet()
+        src = TestPoolSet()
+        dst = TestPoolSet()
         src.parse_zfs_r_output(
             x('karen\t1364533579\nkaren@zfs-auto-snap_monthly-2013-05-01-0300\t1367402402\nkaren@zfs-auto-snap_monthly-2013-06-01-0300\t1370080801\nkaren@zfs-auto-snap_monthly-2013-07-01-0300\t1372672801\nkaren@zfs-auto-snap_monthly-2013-08-01-0300\t1375351202\nkaren@zfs-auto-snap_daily-2013-08-24-0300\t1377338402\nkaren@zfs-auto-snap_daily-2013-08-25-0300\t1377424802\nkaren@zfs-auto-snap_daily-2013-08-26-0300\t1377511202\nkaren@zfs-auto-snap_daily-2013-08-27-0300\t1377597603\nkaren@zfs-auto-snap_daily-2013-08-28-0300\t1377684001\nkaren@zfs-auto-snap_daily-2013-08-29-0300\t1377770402\nkaren@zfs-auto-snap_hourly-2013-08-30-0100\t1377824401\nkaren@zfs-auto-snap_hourly-2013-08-30-0700\t1377846003\nkaren@zfs-auto-snap_daily-2013-08-30-1000\t1377856803\nkaren@zfs-auto-snap_hourly-2013-08-30-1300\t1377867602\nkaren@zfs-auto-snap_hourly-2013-08-30-1900\t1377889202\nkaren/ROOT\t1364534686\nkaren/ROOT@zfs-auto-snap_monthly-2013-05-01-0300\t1367402402\nkaren/ROOT@zfs-auto-snap_monthly-2013-06-01-0300\t1370080801\nkaren/ROOT@zfs-auto-snap_monthly-2013-07-01-0300\t1372672801\nkaren/ROOT@zfs-auto-snap_monthly-2013-08-01-0300\t1375351202\nkaren/ROOT@zfs-auto-snap_daily-2013-08-24-0300\t1377338402\nkaren/ROOT@zfs-auto-snap_daily-2013-08-25-0300\t1377424802\nkaren/ROOT@zfs-auto-snap_daily-2013-08-26-0300\t1377511202\nkaren/ROOT@zfs-auto-snap_daily-2013-08-27-0300\t1377597603\nkaren/ROOT@zfs-auto-snap_daily-2013-08-28-0300\t1377684001\nkaren/ROOT@zfs-auto-snap_daily-2013-08-29-0300\t1377770402\nkaren/ROOT@zfs-auto-snap_hourly-2013-08-30-0100\t1377824401\nkaren/ROOT@zfs-auto-snap_hourly-2013-08-30-0700\t1377846003\nkaren/ROOT@zfs-auto-snap_daily-2013-08-30-1000\t1377856803\nkaren/ROOT@zfs-auto-snap_hourly-2013-08-30-1300\t1377867602\nkaren/ROOT@zfs-auto-snap_hourly-2013-08-30-1900\t1377889202\nkaren/ROOT/fedora\t1364534686\nkaren/ROOT/fedora@zfs-auto-snap_monthly-2013-05-01-0300\t1367402402\nkaren/ROOT/fedora@zfs-auto-snap_monthly-2013-06-01-0300\t1370080801\nkaren/ROOT/fedora@zfs-auto-snap_monthly-2013-07-01-0300\t1372672801\nkaren/ROOT/fedora@zfs-auto-snap_monthly-2013-08-01-0300\t1375351202\nkaren/ROOT/fedora@zfs-auto-snap_daily-2013-08-24-0300\t1377338402\nkaren/ROOT/fedora@zfs-auto-snap_daily-2013-08-25-0300\t1377424802\nkaren/ROOT/fedora@zfs-auto-snap_daily-2013-08-26-0300\t1377511202\nkaren/ROOT/fedora@zfs-auto-snap_daily-2013-08-27-0300\t1377597603\nkaren/ROOT/fedora@zfs-auto-snap_daily-2013-08-28-0300\t1377684001\nkaren/ROOT/fedora@zfs-auto-snap_daily-2013-08-29-0300\t1377770402\nkaren/ROOT/fedora@zfs-auto-snap_hourly-2013-08-30-0100\t1377824401\nkaren/ROOT/fedora@zfs-auto-snap_hourly-2013-08-30-0700\t1377846003\nkaren/ROOT/fedora@zfs-auto-snap_daily-2013-08-30-1000\t1377856803\nkaren/ROOT/fedora@zfs-auto-snap_hourly-2013-08-30-1300\t1377867602\nkaren/ROOT/fedora@zfs-auto-snap_hourly-2013-08-30-1900\t1377889202\nkaren/ROOT/fedora/tmp\t1372565849\nkaren/home\t1364534798\nkaren/home@zfs-auto-snap_monthly-2013-05-01-0300\t1367402402\nkaren/home@zfs-auto-snap_monthly-2013-06-01-0300\t1370080801\nkaren/home@zfs-auto-snap_monthly-2013-07-01-0300\t1372672801\nkaren/home@zfs-auto-snap_monthly-2013-08-01-0300\t1375351202\nkaren/home@zfs-auto-snap_daily-2013-08-24-0300\t1377338402\nkaren/home@zfs-auto-snap_daily-2013-08-25-0300\t1377424802\nkaren/home@zfs-auto-snap_daily-2013-08-26-0300\t1377511202\nkaren/home@zfs-auto-snap_daily-2013-08-27-0300\t1377597603\nkaren/home@zfs-auto-snap_daily-2013-08-28-0300\t1377684001\nkaren/home@zfs-auto-snap_daily-2013-08-29-0300\t1377770402\nkaren/home@zfs-auto-snap_hourly-2013-08-30-0100\t1377824401\nkaren/home@zfs-auto-snap_hourly-2013-08-30-0700\t1377846003\nkaren/home@zfs-auto-snap_daily-2013-08-30-1000\t1377856803\nkaren/home@zfs-auto-snap_hourly-2013-08-30-1300\t1377867602\nkaren/home@zfs-auto-snap_hourly-2013-08-30-1900\t1377889202\nkaren/home/mail\t1374752037\nkaren/home/mail@zfs-auto-snap_monthly-2013-08-01-0300\t1375351202\nkaren/home/mail@zfs-auto-snap_daily-2013-08-24-0300\t1377338402\nkaren/home/mail@zfs-auto-snap_daily-2013-08-25-0300\t1377424802\nkaren/home/mail@zfs-auto-snap_daily-2013-08-26-0300\t1377511202\nkaren/home/mail@zfs-auto-snap_daily-2013-08-27-0300\t1377597603\nkaren/home/mail@zfs-auto-snap_daily-2013-08-28-0300\t1377684001\nkaren/home/mail@zfs-auto-snap_daily-2013-08-29-0300\t1377770402\nkaren/home/mail@zfs-auto-snap_hourly-2013-08-30-0100\t1377824401\nkaren/home/mail@zfs-auto-snap_hourly-2013-08-30-0700\t1377846003\nkaren/home/mail@zfs-auto-snap_daily-2013-08-30-1000\t1377856803\nkaren/home/mail@zfs-auto-snap_hourly-2013-08-30-1300\t1377867602\nkaren/home/mail@zfs-auto-snap_hourly-2013-08-30-1900\t1377889202\nkaren/plonezeo\t1364535620\nkaren/plonezeo@zfs-auto-snap_monthly-2013-05-01-0300\t1367402402\nkaren/plonezeo@zfs-auto-snap_monthly-2013-06-01-0300\t1370080801\nkaren/plonezeo@zfs-auto-snap_monthly-2013-07-01-0300\t1372672801\nkaren/plonezeo@zfs-auto-snap_monthly-2013-08-01-0300\t1375351202\nkaren/plonezeo@zfs-auto-snap_daily-2013-08-24-0300\t1377338402\nkaren/plonezeo@zfs-auto-snap_daily-2013-08-25-0300\t1377424802\nkaren/plonezeo@zfs-auto-snap_daily-2013-08-26-0300\t1377511202\nkaren/plonezeo@zfs-auto-snap_daily-2013-08-27-0300\t1377597603\nkaren/plonezeo@zfs-auto-snap_daily-2013-08-28-0300\t1377684001\nkaren/plonezeo@zfs-auto-snap_daily-2013-08-29-0300\t1377770402\nkaren/plonezeo@zfs-auto-snap_hourly-2013-08-30-0100\t1377824401\nkaren/plonezeo@zfs-auto-snap_hourly-2013-08-30-0700\t1377846003\nkaren/plonezeo@zfs-auto-snap_daily-2013-08-30-1000\t1377856803\nkaren/plonezeo@zfs-auto-snap_hourly-2013-08-30-1300\t1377867602\nkaren/plonezeo@zfs-auto-snap_hourly-2013-08-30-1900\t1377889202\nkaren/sekrit\t1371440813\nkaren/sekrit/f-business\t1371456850\nkaren/sekrit/f-proxy\t1371456866\nkaren/sekrit/f-storefront\t1371456856\nkaren/sekrit/f-template\t1371440847\nkaren/sekrit/f-template@initialsetup\t1371456786\nkaren/sekrit/f-tinc\t1371456889\nkaren/sekrit/f-vpn\t1371456860\nkaren/sekrit/f-wallet\t1371456846\nkaren/swap\t1368951906\n')
         )
@@ -1080,8 +1080,8 @@ class TestRecursiveClearObsolete(unittest.TestCase):
     maxDiff = None
 
     def test_does_nothing(self):
-        src = zfs.TestPoolSet()
-        dst = zfs.TestPoolSet()
+        src = TestPoolSet()
+        dst = TestPoolSet()
         src.parse_zfs_r_output(
 x('''karen   1359351119
 karen/ROOT      1359351169
@@ -1107,8 +1107,8 @@ target/karen/plonezeo  1360136643
         self.assertFalse(result)
 
     def test_clears_nothing(self):
-        src = zfs.TestPoolSet()
-        dst = zfs.TestPoolSet()
+        src = TestPoolSet()
+        dst = TestPoolSet()
         src.parse_zfs_r_output(
 x('''karen   1359351119
 karen/ROOT      1359351169
@@ -1135,8 +1135,8 @@ target/karen/plonezeo  1360136643
         self.assertFalse(result)
 
     def test_clears_one(self):
-        src = zfs.TestPoolSet()
-        dst = zfs.TestPoolSet()
+        src = TestPoolSet()
+        dst = TestPoolSet()
         src.parse_zfs_r_output(
 x('''karen   1359351119
 karen/ROOT      1359351169
@@ -1165,8 +1165,8 @@ target/karen/plonezeo@zfs-auto-snap_hourly-2013-03-19-0000     1363676402
         self.assertEqual(result[0][1].get_path(), 'target/karen/plonezeo@zfs-auto-snap_hourly-2013-03-19-0000')
 
     def test_clears_three(self):
-        src = zfs.TestPoolSet()
-        dst = zfs.TestPoolSet()
+        src = TestPoolSet()
+        dst = TestPoolSet()
         src.parse_zfs_r_output(
 x('''karen   1359351119
 karen/ROOT      1359351169
@@ -1206,8 +1206,8 @@ target/karen/plonezeo@zfs-auto-snap_hourly-2013-03-22-0000     1363676402
             self.assertTrue(p in dsets, "%r could not be found in %r" % (p, dsets))
 
     def test_destroys_one_dataset_recursively(self):
-        src = zfs.TestPoolSet()
-        dst = zfs.TestPoolSet()
+        src = TestPoolSet()
+        dst = TestPoolSet()
         src.parse_zfs_r_output(
 x('''karen   1359351119
 karen/ROOT      1359351169
@@ -1238,8 +1238,8 @@ target/karen/plonezeo@zfs-auto-snap_hourly-2013-03-19-0000     1363676402
         )
 
     def test_destroys_all_datasets_recursively(self):
-        src = zfs.TestPoolSet()
-        dst = zfs.TestPoolSet()
+        src = TestPoolSet()
+        dst = TestPoolSet()
         src.parse_zfs_r_output(
 x('''karen   1359351119
 ''')

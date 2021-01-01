@@ -10,11 +10,18 @@ from zfslib_test_tools import *
 properties = ['name', 'creation', 'used', 'available', 'referenced', 'mountpoint','mounted']
 
 zlist_data = load_test_data('data_mounts', properties)
-poolset = zfs.TestPoolSet()
+poolset = TestPoolSet()
 poolset.parse_zfs_r_output(zlist_data, properties=properties)
 pool_names = pool_names = [p.name for p in poolset if True]
 
+
+props_nm = ['name', 'creation', 'used', 'available', 'referenced']
+zlist_data_nm = load_test_data('data_nomounts', props_nm)
+ps_nm = TestPoolSet()
+ps_nm.parse_zfs_r_output(zlist_data_nm, properties=props_nm)
+
 class PoolSetTests(unittest.TestCase):
+
 
     def test_pool_names(self):
         self.assertEqual(pool_names, ['bpool', 'dpool', 'rpool'])
@@ -243,6 +250,14 @@ class PoolSetTests(unittest.TestCase):
         with self.assertRaises(KeyError): pool.get_dataset('*OOT/ubuntu_n2qr5q/srv')
 
 
+    # TEST snapshot.snap_path for Pool
+    def test_pool_other(self):
+        pool = poolset.lookup('dpool')
+        snap = pool.get_snapshot('test20201228')
+        RE_MSG=r'This function is only available for Snapshots'
+        with self.assertRaisesRegex(AssertionError, RE_MSG): snap.snap_path
+        with self.assertRaisesRegex(AssertionError, RE_MSG): snap.resolve_snap_path('foo')
+
 
     def test_snapable_get_snapshots(self):
         pool = poolset.lookup('rpool')
@@ -363,37 +378,183 @@ class PoolSetTests(unittest.TestCase):
         self.assertIsInstance(snaps[0][0], int)
         self.assertIsInstance(snaps[0][1], zfs.Snapshot)
 
+        # Negative Tests
         with self.assertRaises(TypeError): snaps = ds.find_snapshots()
         with self.assertRaises(AssertionError): snaps = ds.find_snapshots({'name': True})
         with self.assertRaises(AssertionError): snaps = ds.find_snapshots({'dt_from': 'asdf'})
         with self.assertRaises(AssertionError): snaps = ds.find_snapshots({'dt_to': 'asdf'})
         with self.assertRaises(AssertionError): snaps = ds.find_snapshots({'tdelta': 10})
-        with self.assertRaises(KeyError): snaps = ds.find_snapshots({'tdelta': '-10H'})
+        with self.assertRaises(AssertionError): snaps = ds.find_snapshots({'tdelta': '-10H'})
         with self.assertRaises(AssertionError): snaps = ds.find_snapshots({'index': 1})
-        with self.assertRaises(KeyError): 
+        with self.assertRaises(AssertionError): 
             snaps = ds.find_snapshots({'dt_to': dt_date(2020, 12, 20)
                                      , 'dt_from': dt_date(2020, 12, 21)})
-        with self.assertRaises(KeyError): 
+        with self.assertRaises(AssertionError): 
             snaps = ds.find_snapshots({'dt_to': dt_date(2020, 12, 21)
                                       ,'dt_from': dt_date(2020, 12, 20)
                                       ,'tdelta': "1H"})
 
 
+    # tested against data_nomounts.tsv
+    def test_no_mounts(self):
+        pool = ps_nm.lookup('dpool')
+        ds = pool.lookup('vcmain')
+
+        snaps = ds.get_all_snapshots()
+        snap=snaps[0]
+
+        self.assertEqual(ps_nm.have_mounts, False)
+        
+        RE_HM=r'Mount information not loaded.'
+
+        with self.assertRaisesRegex(AssertionError, RE_HM): ds.mounted
+        with self.assertRaisesRegex(AssertionError, RE_HM): ds.mountpoint
+        with self.assertRaisesRegex(AssertionError, RE_HM): ds.has_mount
+        with self.assertRaisesRegex(AssertionError, RE_HM): ds.get_diffs(snaps[0])
+        with self.assertRaisesRegex(AssertionError, RE_HM): ds.get_rel_path('gen')
+        with self.assertRaisesRegex(AssertionError, RE_HM): ds.assertHaveMounts()
+        with self.assertRaisesRegex(AssertionError, RE_HM): snap.snap_path
+        with self.assertRaisesRegex(AssertionError, RE_HM): snap.resolve_snap_path('foo')
+        with self.assertRaisesRegex(AssertionError, RE_HM): ps_nm.find_dataset_for_path('foo')
+        
 
 
-    # TODO:
-    # [.] - Write tests for Dataset.get_diffs
-    #       Not sure how to write this it needs dynamic data calls
-    # [.] - Write tests for Dataset.get_rel_path
-    # [.] - Write tests for Dataset.assertHaveMounts
-    # [.] - Write tests for Snapshot.get_snap_path
-    # [.] - Write tests for Snapshot.resolve_snap_path
-    #       Note: may need refactoring to make it unit testable
-    # [.] - Write tests for Diff class...
-    # [.] - Write tests for find_dataset_for_path...
-    #       Note: may need refactoring to make it unit testable
+# Test General Utilities
+    def test_buildTimedelta(self):
+        self.assertEqual(zfs.buildTimedelta(timedelta(seconds=10)), timedelta(seconds=10))
+        self.assertEqual(zfs.buildTimedelta('1y'), timedelta(days=365))
+        self.assertEqual(zfs.buildTimedelta('1m'), timedelta(days=(365/12)))
+        self.assertEqual(zfs.buildTimedelta('1w'), timedelta(weeks=1))
+        self.assertEqual(zfs.buildTimedelta('10d'), timedelta(days=10))
+        self.assertEqual(zfs.buildTimedelta('10H'), timedelta(hours=10))
+        self.assertEqual(zfs.buildTimedelta('10M'), timedelta(minutes=10))
+        self.assertEqual(zfs.buildTimedelta('10S'), timedelta(seconds=10))
+
+        # Negative tests
+        with self.assertRaises(TypeError): zfs.buildTimedelta()
+        with self.assertRaises(TypeError): zfs.buildTimedelta('1H', True)
+        with self.assertRaises(AssertionError): zfs.buildTimedelta(None)
+        with self.assertRaises(AssertionError): zfs.buildTimedelta(datetime.now())
+        with self.assertRaises(AssertionError): zfs.buildTimedelta('1')
+        with self.assertRaises(AssertionError): zfs.buildTimedelta('aH')
+        with self.assertRaises(AssertionError): zfs.buildTimedelta('-1H')
+        with self.assertRaises(AssertionError): zfs.buildTimedelta('1X')
+
+
+
+    def test_calcDateRange(self):
+        _now = datetime.now()
+        _weekago = datetime.now() - timedelta(weeks=1)
+        self.assertEqual(zfs.calcDateRange('1d', dt_to=_now), \
+            (_now - timedelta(days=1), _now) )
+
+        self.assertEqual(zfs.calcDateRange('2d', dt_from=_weekago), \
+            (_weekago, _weekago + timedelta(days=2)) )
+
+        self.assertEqual(zfs.calcDateRange('3m', dt_to=_now), \
+            (_now - timedelta(days=(3 * (365/12))), _now) )
+
+        # Negative tests
+        with self.assertRaises(TypeError): zfs.calcDateRange()
+        with self.assertRaises(TypeError): zfs.calcDateRange(1,2,3,4)
+        with self.assertRaises(AssertionError): zfs.calcDateRange(None)
+        with self.assertRaises(AssertionError): zfs.calcDateRange('1H', _now, _now)
+        with self.assertRaises(AssertionError): zfs.calcDateRange('1H', dt_from=None)
+        with self.assertRaises(AssertionError): zfs.calcDateRange('1H', dt_to=None)
+
+
+    def test_splitPath(self):
+        self.assertEqual(zfs.splitPath('/var/log/'), ('', '/var/log'))
+        self.assertEqual(zfs.splitPath('/var/log'), ('log', '/var'))
+        self.assertEqual(zfs.splitPath('foo.txt'), ('foo.txt', ''))
+        self.assertEqual(zfs.splitPath('./foo.txt'), ('foo.txt', '.'))
+        self.assertEqual(zfs.splitPath('../foo.txt'), ('foo.txt', '..'))
+        self.assertEqual(zfs.splitPath('/var/log/foo.txt'), ('foo.txt', '/var/log'))
+        
+
+        # Negative tests
+        with self.assertRaises(TypeError): zfs.splitPath()
+        with self.assertRaises(TypeError): zfs.splitPath('foo', None)
+        with self.assertRaises(AssertionError): zfs.splitPath(None)
+        with self.assertRaises(AssertionError): zfs.splitPath('')
+
+
+
+class Simplify_Tests(unittest.TestCase):
+
+    def test_simple(self):
+        m = [
+        (1,2,"one"),
+        (2,3,"two"),
+        ]
+        r1 = zfs.simplify(m)
+        r2 = [[1, 3, 'one']]
+        self.assertEqual(r1, r2)        
+
+    def test_complex(self):
+        m = [
+        (1,2,"one"),
+        (2,3,"two"),
+        (3,4,"three"),
+        (8,9,"three"),
+        (4,5,"four"),
+        (6,8,"blah"),
+        ]
+        r1 = zfs.simplify(m)
+        r2 = [[1, 5, 'one'], [6, 9, 'blah']]
+        self.assertEqual(r1, r2)        
+
+    def test_discrete(self):
+        m = [
+        (1,2,"one"),
+        (2,4,"two"),
+        (6,9,"three"),
+        ]
+        # note last element is a tuple
+        r1 = zfs.simplify(m)
+        r2 = [[1, 4, 'one'], (6, 9, 'three')]
+        self.assertEqual(r1, r2)        
+
+    def test_with_strings(self):
+        m = [
+        "abM",
+        "bcN",
+        "cdO",
+        ]
+        # note last element is a tuple
+        r1 = zfs.simplify(m)
+        r2 = [list("adM")]
+        self.assertEqual(r1, r2)        
+
+
+class Uniq_Tests(unittest.TestCase):
+    
+    def test_identity(self):
+        s = "abc"
+        r1 = zfs.uniq(s)
+        r2 = list(s)
+        self.assertEqual(r1,r2)
+
+    def test_similarelement(self):
+        s = "abcb"
+        r1 = zfs.uniq(s)
+        r2 = list("abc")
+        self.assertEqual(r1,r2)
+
+    def test_repeatedsequences(self):
+        s = "abcabc"
+        r1 = zfs.uniq(s)
+        r2 = list("abc")
+        self.assertEqual(r1,r2)
+
+    def test_idfun(self):
+        s = "abc"
+        idfun = lambda _: "a"
+        r1 = zfs.uniq(s, idfun)
+        r2 = list("a")
+        self.assertEqual(r1,r2)
+
 
 
 if __name__ == "__main__":
-    #import sys;sys.argv = ['', 'Test.testName']
     unittest.main()
