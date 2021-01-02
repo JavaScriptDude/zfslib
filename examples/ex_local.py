@@ -1,4 +1,6 @@
 # Basic example for accessing ZFS on local machine
+# Test requirements:
+# python-magic
 import sys
 import zfslib as zfs
 from zfslib_ex_common import *
@@ -43,5 +45,7 @@ def main(argv):
 
 if __name__ == '__main__':
     main(sys.argv[1:])
+    sys.exit(0)
+
 
 

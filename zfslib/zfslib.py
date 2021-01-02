@@ -4,7 +4,7 @@
 # .: Other :.
 # Author: Timothy C. Quinn
 # Home: https://github.com/JavaScriptDude/zfslib
-# Licence: https://opensource.org/licenses/GPL-3.0
+# Licence: https://opensource.org/licenses/BSD-3-Clause
 #########################################
 
 import subprocess
@@ -12,6 +12,7 @@ import os
 import fnmatch
 import pathlib
 import inspect
+import sys
 from collections import OrderedDict
 from datetime import datetime, timedelta, date as dt_date
 
@@ -47,7 +48,7 @@ class Connection:
 
     # Data is cached unless force=True, snapshots have been made since last read
     # or properties is different
-    def load_poolset(self, properties:list=[], get_mounts:bool=True, force:bool=False, _test_data:str=None):
+    def load_poolset(self, properties=[], get_mounts=True, force=False, _test_data=None):
         if force or self._dirty or not self._props_last == properties:
             self._poolset._load(properties=properties, get_mounts=get_mounts, _test_data=_test_data)
             self._dirty = False
@@ -56,7 +57,7 @@ class Connection:
         return self._poolset
 
 
-    def snapshot_recursively(self,name,snapshotname,properties={}):
+    def snapshot_recursively(self, name, snapshotname, properties={}):
         plist = sum( map( lambda x: ['-o', '%s=%s' % x ], properties.items() ), [] )
         subprocess.check_call(self.command + ["zfs", "snapshot", "-r" ] + plist + [ "%s@%s" % (name, snapshotname)])
         self._dirty = True
@@ -68,11 +69,11 @@ class PoolSet(object):
     items = property(lambda self: [self._pools[p] for p in self._pools if True])
     have_mounts = False
 
-    def __init__(self, conn:Connection):
+    def __init__(self, conn):
         self.connection=conn
         self._pools = {}
 
-    def get_pool(self, name) -> 'Pool':
+    def get_pool(self, name):
         p = self.lookup(name)
         assert isinstance(p, Pool), "Item passed is not a pool name. Got: %s" % p
         return p
@@ -104,7 +105,7 @@ class PoolSet(object):
     # Note: _test_data is for testing only
     # get_mounts will automated grabbing of mountpoint and mounted properties and
     # store flag for downstream code to know that these flags are available
-    def _load(self, get_mounts:bool=True, properties:list=None, _test_data:str=None):
+    def _load(self, get_mounts=True, properties=None, _test_data=None):
 
         _pdef=['name', 'creation']
 
@@ -130,7 +131,7 @@ class PoolSet(object):
         _base_cmd = self.connection.command
 
         def extract_properties(s):
-            s = s.decode('utf-8') if isinstance(s, bytes) else s
+            s = s.decode('utf-8') if not isPy2() and isinstance(s, bytes) else s
             items = s.strip().split( '\t' )
             assert len( items ) == len( properties ), (properties, items)
             propvalues = map( lambda x: None if x == '-' else x, items[ 1: ] )
@@ -196,9 +197,9 @@ class PoolSet(object):
     # Will resolve Pool and Dataset for a path on local filesystem using the mountpoint
     # returns (Pool, Dataset, Real_Path, Relative_Path)
     # Note: Ignores any dataset with root mountpoint (/)
-    def find_dataset_for_path(self, path:str) -> tuple:
+    def find_dataset_for_path(self, path):
         assert self.have_mounts, "Mount information not loaded. Please use Connection.load_poolset(get_mounts=True)."
-        p_real = os.path.abspath( pathlib.Path(path).expanduser() )
+        p_real = os.path.abspath( expand_user(path) )
         p_real = os.path.realpath(p_real)
         pool=ds=mp=p_rela=None
         for pool_c in self:
@@ -241,12 +242,12 @@ class PoolSet(object):
 ''' ZFS Entities
 
  Model:
-    <ZFSItem> ⎼⎼⎼⎼⎼⎼⎼⎼⎼⎼⎼⎼⎼⎼⎼⎼o         
-    |                        |         
-    v                        |         
-    <Snapable> ⎼⎼⎼o           |         
-    |            |           |         
-    v            v           v         
+    <ZFSItem> ----------------o         
+    |                         |         
+    v                         |         
+    <Snapable> ---o           |         
+    |             |           |         
+    v             v           v         
     <Pool>       <Dataset>   <Snapshot> 
     -----------------------------------
     <Diff>
@@ -315,7 +316,7 @@ class ZFSItem(object):
 class Snapable(ZFSItem): # Abstract class for Pools and Datasets
 
     def __init__(self, pool, name, parent=None):
-        super().__init__(pool, name, parent)
+        super(Snapable, self).__init__(pool, name, parent)
         
     # Lookup for Datasets or Snapshot by dataset relative path
     # Eg. for snapshots: <dataset_path>@<snapshot>
@@ -362,7 +363,7 @@ class Snapable(ZFSItem): # Abstract class for Pools and Datasets
         
 
     # returns list(of str) or if with_depth == True then list(of tuple(of depth, Dataset))
-    def get_all_datasets(self, with_depth:bool=False, depth:int=0):
+    def get_all_datasets(self, with_depth=False, depth=0):
         a = []
         for c in self.children:
             if isinstance(c, Dataset):
@@ -409,7 +410,7 @@ class Snapable(ZFSItem): # Abstract class for Pools and Datasets
     #  Notes:
     #  - Date searching is any combination of:
     #      (dt_from --> dt_to) | (dt_from --> dt_from + tdelta) | (dt_to - tdelta --> dt_to) | (dt_from --> now)
-    def find_snapshots(self, find_opts:dict) -> list:
+    def find_snapshots(self, find_opts):
 
         def __assert(k, types, default=None, to_datetime=False):
             if k == 'find_opts':
@@ -486,8 +487,8 @@ class Snapable(ZFSItem): # Abstract class for Pools and Datasets
 
 
 class Pool(Snapable):
-    def __init__(self, name, conn:Connection, have_mounts:bool):
-        super().__init__(self, name)
+    def __init__(self, name, conn, have_mounts):
+        super(Pool, self).__init__(self, name)
         self.connection = conn
         self.have_mounts = have_mounts
         self.pool = self
@@ -507,7 +508,7 @@ class Dataset(Snapable):
     _mounted=None
     
     def __init__(self, pool, name, parent=None):
-        super().__init__(pool, name, parent)
+        super(Dataset, self).__init__(pool, name, parent)
         self.dspath = self.path[len(pool.name)+1:]
 
 
@@ -531,7 +532,7 @@ class Dataset(Snapable):
     #  - +       The path has been created
     #  - M       The path has been modified
     #  - R       The path has been renamed
-    def get_diffs(self, snap_from, snap_to=None, include:list=None, exclude:list=None, file_type=None, chg_type=None) -> list:
+    def get_diffs(self, snap_from, snap_to=None, include=None, exclude=None, file_type=None, chg_type=None):
         self.assertHaveMounts()
         assert self.mounted, "Cannot get diffs for Unmounted Dataset. Verify mounted flag on Dataset before calling"
 
@@ -564,7 +565,7 @@ class Dataset(Snapable):
 
         stdout = subprocess.check_output(cmd)
         def __row(s):
-            s = s.decode('utf-8') if isinstance(s, bytes) else s
+            s = s.decode('utf-8') if not isPy2() and isinstance(s, bytes) else s
             return s.strip().split( '\t' )
         rows = list(map(lambda s: __row(s), stdout.splitlines()))
         diffs = []
@@ -616,10 +617,10 @@ class Dataset(Snapable):
 
     # Return relative path to resource within a dataset
     # path must be an actual path on the system being analyzed
-    def get_rel_path(self, path) -> str:
+    def get_rel_path(self, path):
         self.assertHaveMounts()
         assert isinstance(path, str), "argument passed is not a string. Got: {}".format(type(path))
-        p_real = os.path.abspath( pathlib.Path(path).expanduser() )
+        p_real = os.path.abspath( expand_user(path) )
         p_real = os.path.realpath(p_real)
         mp = self.mountpoint
         if not p_real.find(mp) == 0:
@@ -646,7 +647,7 @@ class Dataset(Snapable):
 class Snapshot(ZFSItem):
 
     def __init__(self, pool, name, parent=None):
-        super().__init__(pool, name, parent)
+        super(Snapshot, self).__init__(pool, name, parent)
         self.dataset = parent if isinstance(parent, Dataset) else None
 
 
@@ -681,7 +682,7 @@ class Snapshot(ZFSItem):
 
         if path is None or not isinstance(path, str) or path.strip() == '':
             assert 0, "path must be a non-blank string"
-        path = os.path.abspath( pathlib.Path(path).expanduser() )
+        path = os.path.abspath( expand_user(path) )
         path_neweal = os.path.realpath(path)
         snap_path_base = self.snap_path
         ds_mp = self.dataset.mountpoint
@@ -726,7 +727,7 @@ class Diff():
        ,'M': 'The path has been modified'
        ,'R': 'The path has been renamed'
     }
-    def __init__(self, row:list, snap_left, snap_right):
+    def __init__(self, row, snap_left, snap_right):
         self.no_from_snap=False
         self.to_present=False
         if isinstance(snap_left, str) and snap_left == '(na-first)':
@@ -803,13 +804,13 @@ class Diff():
     snap_path_right = property(_get_snap_path_right)
     
     @staticmethod
-    def get_file_type(s) -> str:
+    def get_file_type(s):
         assert (isinstance(s, str) and not s == ''), "argument must be a non-empty string"
         assert s in Diff.FILE_TYPES, "ZFS Diff File type is invalid: '{}'".format(s)
         return Diff.FILE_TYPES[s]
 
     @staticmethod
-    def get_change_type(s) -> str:
+    def get_change_type(s):
         assert (isinstance(s, str) and not s == ''), "argument must be a non-empty string"
         assert s in Diff.CHANGE_TYPES, "ZFS Diff Change type is invalid: '{}'".format(s)
         return Diff.CHANGE_TYPES[s]
@@ -832,7 +833,7 @@ class Diff():
 # . tdelta is a timedelta -or- str(nC) where: n is an integer > 0 and C is one of:
 #   . y=year, m=month, w=week, d=day, H=hour, M=minute, s=second
 # Note: month and year are imprecise and assume 30.4 and 365 days
-def buildTimedelta(tdelta) -> timedelta:
+def buildTimedelta(tdelta):
     if isinstance(tdelta, timedelta): return tdelta
     
     if not isinstance(tdelta, str):
@@ -871,7 +872,7 @@ def buildTimedelta(tdelta) -> timedelta:
 # . y=year, m=month, w=week, d=day, H=hour, M=minute, s=second
 # If dt_from is defined, return tuple: (dt_from, dt_from+tdelta)
 # If dt_to is defined, return tuple: (dt_from-tdelta, dt_to)
-def calcDateRange(tdelta, dt_from:datetime=None, dt_to:datetime=None) -> tuple:
+def calcDateRange(tdelta, dt_from=None, dt_to=None):
     if tdelta is None: raise AssertionError('tdelta is required')
     if dt_from and dt_to:
         raise AssertionError('Only one of dt_from or dt_to must be defined')
@@ -943,4 +944,40 @@ def uniq(seq, idfun=None):
         result.append(item)
     return result
 
+def expand_user(path):
+    if isPy2():
+        return os.path.expanduser(path)
+    else:
+        return pathlib.Path(path).expanduser()
+
+def isPy2():
+    return (sys.version_info[0] == 2)
+
+
 ''' END Utilities '''
+
+
+
+''' LEGACY DUCK PUNCHING'''
+
+# Work-around for check_output not existing on Python 2.6, as per
+# http://stackoverflow.com/questions/4814970/subprocess-check-output-doesnt-seem-to-exist-python-2-6-5
+# The implementation is lifted from
+# http://hg.python.org/cpython/file/d37f963394aa/Lib/subprocess.py#l544
+if "check_output" not in dir( subprocess ): # duck punch it in!
+    def f(*popenargs, **kwargs):
+        if 'stdout' in kwargs:
+            raise ValueError('stdout argument not allowed, it will be overridden.')
+        process = subprocess.Popen(stdout=subprocess.PIPE, *popenargs, **kwargs)
+        output, unused_err = process.communicate()
+        retcode = process.poll()
+        if retcode:
+            cmd = kwargs.get("args")
+            if cmd is None:
+                cmd = popenargs[0]
+            raise subprocess.CalledProcessError(retcode, cmd) # , output=output)
+        return output
+    subprocess.check_output = f
+
+
+''' END LEGACY DUCK PUNCHING '''

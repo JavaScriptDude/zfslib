@@ -4,7 +4,6 @@ import subprocess
 from datetime import datetime
 import zfslib as zfs
 
-
 def dt_from_creation(creation):
     return datetime.fromtimestamp(int(creation))
 

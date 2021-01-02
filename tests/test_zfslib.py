@@ -1,4 +1,4 @@
-import unittest
+import unittest2
 from datetime import datetime, timedelta, date as dt_date
 import zfslib as zfs
 from zfslib_test_tools import *
@@ -20,7 +20,7 @@ zlist_data_nm = load_test_data('data_nomounts', props_nm)
 ps_nm = TestPoolSet()
 ps_nm.parse_zfs_r_output(zlist_data_nm, properties=props_nm)
 
-class PoolSetTests(unittest.TestCase):
+class PoolSetTests(unittest2.TestCase):
 
 
     def test_pool_names(self):
@@ -480,7 +480,7 @@ class PoolSetTests(unittest.TestCase):
 
 
 
-class Simplify_Tests(unittest.TestCase):
+class Simplify_Tests(unittest2.TestCase):
 
     def test_simple(self):
         m = [
@@ -527,7 +527,7 @@ class Simplify_Tests(unittest.TestCase):
         self.assertEqual(r1, r2)        
 
 
-class Uniq_Tests(unittest.TestCase):
+class Uniq_Tests(unittest2.TestCase):
     
     def test_identity(self):
         s = "abc"
@@ -557,4 +557,5 @@ class Uniq_Tests(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main()
+    unittest2.main()
+    sys.exit(0)

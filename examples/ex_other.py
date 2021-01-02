@@ -1,4 +1,6 @@
 # See: https://github.com/JavaScriptDude/zfslib
+# Test requirements:
+# python-magic
 
 import sys, magic, subprocess
 from datetime import datetime, timedelta
@@ -65,10 +67,9 @@ def main(argv):
         c = snapshots[-1:][0].pool.connection
 
 
-    ds_name_full = f"{pool_name}/{ds_name}"
 
     # Print datasets creation date
-    print(f"{ds_name_full} creation date: {ds.creation}")
+    print("{} creation date: {}".format(ds.path, ds.creation))
 
     # Grab Snapshots
     snapshots = ds.get_snapshots()
@@ -77,14 +78,14 @@ def main(argv):
         snap=snapshots[0]
 
         # Get Snapshot Creation date
-        print(f"{ds_name_full}@{snap.name} creation date: {ds.creation}")
+        print("{} creation date: {}".format(snap.path, snap.creation))
 
         # Read property from DataSet / Snapshot
-        print(f"{ds_name_full}@{snap.name} usedsnap: {snap.get_property('usedsnap')}")
-
+        print("{} usedsnap: {}".format(snap.path, snap.get_property('usedsnap')))
 
 
 if __name__ == '__main__':
     main(sys.argv[1:])
+    sys.exit(0)
 
 

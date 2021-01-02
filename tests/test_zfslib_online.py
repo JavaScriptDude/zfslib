@@ -1,4 +1,4 @@
-import unittest
+import unittest2
 from datetime import datetime, timedelta, date as dt_date
 import zfslib as zfs
 from zfslib_test_tools import *
@@ -52,7 +52,7 @@ def validate_diff(diff):
     if b_cr: _checkPath(diff.snap_path_right)
 
 
-class Diff_Tests(unittest.TestCase):
+class Diff_Tests(unittest2.TestCase):
     def setUp(self):
         if len(snaps_varlog) < 2:
             raise Exception("Testing cannot be done. Please ensure that Dataset rpool/ROOT/<computer>/var/log has more than one snapshot")
@@ -159,7 +159,7 @@ class Diff_Tests(unittest.TestCase):
 
 
 
-class Poolset_Tests(unittest.TestCase):
+class Poolset_Tests(unittest2.TestCase):
     def test_find_dataset_for_path(self):
         path = '/var/log/apt/history.log'
         tup = poolset.find_dataset_for_path(path)
@@ -200,7 +200,7 @@ class Poolset_Tests(unittest.TestCase):
 
 
 
-class Dataset_Tests(unittest.TestCase):
+class Dataset_Tests(unittest2.TestCase):
 
     def test_get_rel_path(self):
         self.assertEqual(ds_varlog.get_rel_path('/var/log/apt/history.log'), '/apt/history.log')
@@ -212,7 +212,7 @@ class Dataset_Tests(unittest.TestCase):
     
 
 
-class Snapshot_Tests(unittest.TestCase):
+class Snapshot_Tests(unittest2.TestCase):
 
     def test_resolve_snap_path(self):
         snap = snaps_varlog[1]
@@ -240,4 +240,5 @@ class Snapshot_Tests(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main()
+    unittest2.main()
+    sys.exit(0)

@@ -1,23 +1,26 @@
+
+# Test requirements:
+# python-magic
 import sys, magic, subprocess
 import zfslib as zfs
 
 from datetime import datetime, timedelta
 
-def print_all_datasets(pool: zfs.Pool):
+def print_all_datasets(pool):
     allds = pool.get_all_datasets(with_depth=True)
     for (depth, ds) in allds:
         print("{}: {} {} ({})".format(pool.name, ' .'*depth, ds.name, ds.dspath))
 
 
 
-def print_all_datasets(pool: zfs.Pool):
+def print_all_datasets(pool):
     allds = pool.get_all_datasets(with_depth=True)
     for (depth, ds) in allds:
         print("{}: {} {} ({})".format(pool.name, ' .'*depth, ds.name, ds.dspath))
 
 
 # This can be very slow for large datasets. Its actually `zfs diff` thats the slow part
-def print_diffs_test(ds: zfs.Dataset, snapshots: list):
+def print_diffs_test(ds, snapshots):
     snap_last = None
     for i, snap in enumerate(snapshots):
         
@@ -48,7 +51,7 @@ def print_diffs_test(ds: zfs.Dataset, snapshots: list):
 
 
 
-def get_file_diff(diff:zfs.Diff):
+def get_file_diff(diff):
     if not diff.file_type == 'F':
         raise Exception('get_file_diff() is only available for files (file_type = F).')
     if not diff.chg_type == 'M':
