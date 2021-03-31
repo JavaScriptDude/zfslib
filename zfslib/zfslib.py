@@ -16,6 +16,7 @@ import sys
 from collections import OrderedDict
 from datetime import datetime, timedelta, date as dt_date
 
+is_py2=(sys.version_info[0] == 2)
 
 class Connection:
     host = None
@@ -48,7 +49,8 @@ class Connection:
 
     # Data is cached unless force=True, snapshots have been made since last read
     # or properties is different
-    def load_poolset(self, properties=[], get_mounts=True, force=False, _test_data=None):
+    def load_poolset(self, properties=None, get_mounts=True, force=False, _test_data=None):
+        properties = [] if properties is None else properties
         if force or self._dirty or not self._props_last == properties:
             self._poolset._load(properties=properties, get_mounts=get_mounts, _test_data=_test_data)
             self._dirty = False
@@ -57,7 +59,8 @@ class Connection:
         return self._poolset
 
 
-    def snapshot_recursively(self, name, snapshotname, properties={}):
+    def snapshot_recursively(self, name, snapshotname, properties=None):
+        properties = {} if properties is None else properties
         plist = sum( map( lambda x: ['-o', '%s=%s' % x ], properties.items() ), [] )
         subprocess.check_call(self.command + ["zfs", "snapshot", "-r" ] + plist + [ "%s@%s" % (name, snapshotname)])
         self._dirty = True
@@ -106,6 +109,7 @@ class PoolSet(object):
     # get_mounts will automated grabbing of mountpoint and mounted properties and
     # store flag for downstream code to know that these flags are available
     def _load(self, get_mounts=True, properties=None, _test_data=None):
+        global is_py2
 
         _pdef=['name', 'creation']
 
@@ -131,7 +135,7 @@ class PoolSet(object):
         _base_cmd = self.connection.command
 
         def extract_properties(s):
-            s = s.decode('utf-8') if not isPy2() and isinstance(s, bytes) else s
+            if not is_py2 and isinstance(s, bytes): s = s.decode('utf-8')
             items = s.strip().split( '\t' )
             assert len( items ) == len( properties ), (properties, items)
             propvalues = map( lambda x: None if x == '-' else x, items[ 1: ] )
@@ -533,6 +537,7 @@ class Dataset(Snapable):
     #  - M       The path has been modified
     #  - R       The path has been renamed
     def get_diffs(self, snap_from, snap_to=None, include=None, exclude=None, file_type=None, chg_type=None):
+        global is_py2
         self.assertHaveMounts()
         assert self.mounted, "Cannot get diffs for Unmounted Dataset. Verify mounted flag on Dataset before calling"
 
@@ -550,6 +555,8 @@ class Dataset(Snapable):
             if isinstance(v, str): return [v]
             if isinstance(v, list): return v
             raise AssertionError("{} can only be a str or list. Got: {}".format(k, type(v)))
+
+
         file_type = __tv('file_type', file_type)
         chg_type = __tv('chg_type', chg_type)
 
@@ -564,9 +571,11 @@ class Dataset(Snapable):
 
 
         stdout = subprocess.check_output(cmd)
+
         def __row(s):
-            s = s.decode('utf-8') if not isPy2() and isinstance(s, bytes) else s
+            if not is_py2 and isinstance(s, bytes): s = s.decode('utf-8')
             return s.strip().split( '\t' )
+
         rows = list(map(lambda s: __row(s), stdout.splitlines()))
         diffs = []
         for row in rows:
@@ -945,13 +954,13 @@ def uniq(seq, idfun=None):
     return result
 
 def expand_user(path):
-    if isPy2():
+    global is_py2
+    if is_py2:
         return os.path.expanduser(path)
     else:
         return pathlib.Path(path).expanduser()
 
-def isPy2():
-    return (sys.version_info[0] == 2)
+
 
 
 ''' END Utilities '''
