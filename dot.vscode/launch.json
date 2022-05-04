@@ -1,0 +1,21 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: Current File",
+            "type": "python",
+            "request": "launch",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            // "program": "./examples/ex_local.py",
+            // "program": "./examples/ex_remote.py",
+            // "program": "./examples/ex_other.py",
+            // "program": "./tests/test_sync.py",
+            // "program": "./tests/test_zfslib.py",
+            "program": "./tests/test_zfslib_online.py",
+        }
+    ]
+}
