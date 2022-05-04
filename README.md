@@ -4,13 +4,13 @@ ZFS Libraries for Python
 
 Python library for reading from ZFS Pools. Capable of reading, Pools, Datasets, Snapshots and Diffs for use by other Python Tools.
 
-This tool presently targets Python v3.7+ but has been tested for Python 2.7.18 but Python 2.x support my be removed with future releases.
+This tool presently targets Python v3.7+
 
 ## Installation
 
 Install this plugin using `pip`:
 
-    $ pip install zfslib
+    $ python3 -m pip install zfslib
 
 ## Usage
 
