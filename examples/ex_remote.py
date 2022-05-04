@@ -25,33 +25,35 @@ def main(argv):
 
 
     # Get first snapshot in specific pool/dataset
-    p = poolset.get_pool('freenas-boot')
-    ds = p.get_dataset('ROOT/11.3-U5')
+    p = poolset.get_pool('tank')
+    ds = p.get_dataset('.system/samba4')
     all_snaps = ds.get_all_snapshots()
     if len(all_snaps) == 0:
         print('No snapshots found for dataset: {}'.format(ds))
+
     else:
-        print('First Snapshot for dataset {}: {}'.format(ds, all_snaps[0]))
+        snap = all_snaps[0]
+        
+        print('First Snapshot for dataset {}: {}'.format(ds, snap))
 
 
-    if False:
-        # Lookup snapshot by its name within poolset
-        snap = poolset.lookup('freenas-boot/ROOT/11.3-U5@2020-01-30-19:49:13')
-        print('poolset.lookup snap: {}'.format(snap))
+        if True:
+            # Lookup snapshot by its name within poolset
+            snap = poolset.lookup(snap.path)
+            print('poolset.lookup snap: {}'.format(snap))
 
 
-    if False:
-        # Lookup snapshot by its name within pool
-        p = poolset.get_pool('freenas-boot')
-        snap = p.lookup('ROOT/11.3-U5@2020-01-30-19:49:13')
-        print('pool.lookup snap: {}'.format(snap))
+        if True:
+            # Lookup snapshot by its name within pool
+            snap = p.lookup(snap.name_full)
+            print('pool.lookup snap: {}'.format(snap))
 
 
-    # Iterate through all pools and print all datasets
-    if False:
-        print("Pools and Datasets:")
-        for p in poolset:
-            print_all_datasets(p)
+        # Iterate through all pools and print all datasets
+        if True:
+            print("Pools and Datasets:")
+            for p in poolset:
+                print_all_datasets(p)
 
 
 

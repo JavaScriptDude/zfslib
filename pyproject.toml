@@ -1,0 +1,34 @@
+[tool.poetry]
+name = "zfslib"
+version = "0.9.1"
+description = "ZFS Utilities For Python3"
+license = "MIT"
+authors = ["Timothy C. Quinn"]
+readme = "README.md"
+homepage = "https://pypi.org/project/zfslib"
+repository = "https://github.com/JavaScriptDude/zfslib"
+classifiers = [
+    'Development Status :: 4 - Beta',
+    'Environment :: Console',
+    'Intended Audience :: System Administrators',
+    'License :: OSI Approved :: BSD License',
+    'Operating System :: POSIX :: Linux',
+    'Operating System :: POSIX :: BSD',
+    'Operating System :: POSIX :: SunOS/Solaris',
+    'Operating System :: MacOS :: MacOS X',
+    'Programming Language :: Python :: 3 :: Only',
+    'Programming Language :: Python :: 3.7',
+    'Programming Language :: Python :: 3.8',
+    'Programming Language :: Python :: 3.9',
+    'Topic :: System :: Filesystems',
+    'Topic :: Utilities',
+]
+
+[tool.poetry.dependencies]
+python = "^3.7.9"
+
+[tool.poetry.dev-dependencies]
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"

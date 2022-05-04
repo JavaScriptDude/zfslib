@@ -3,7 +3,7 @@ Created on Mar 19, 2013
 
 @author: rudd-o
 '''
-import unittest2
+import unittest
 import zfslib as zfs
 from zfslib_test_tools import *
 import sync
@@ -15,7 +15,7 @@ def x(string):
     )
 
 
-class TestRecursiveReplicate(unittest2.TestCase):
+class TestRecursiveReplicate(unittest.TestCase):
 
     maxDiff = None
 
@@ -1075,7 +1075,7 @@ t/s   1359351119
         self.assertEqual(expected_coalesced_recursivized,real_coalesced_recursivized)
 
 
-class TestRecursiveClearObsolete(unittest2.TestCase):
+class TestRecursiveClearObsolete(unittest.TestCase):
 
     maxDiff = None
 
@@ -1270,5 +1270,5 @@ target/karen/plonezeo@zfs-auto-snap_hourly-2013-03-19-0000     1363676402
 
 if __name__ == "__main__":
     #import sys;sys.argv = ['', 'Test.testName']
-    unittest2.main()
+    unittest.main()
     sys.exit(0)
