@@ -8,13 +8,7 @@ from datetime import datetime, timedelta
 
 def print_all_datasets(pool):
     allds = pool.get_all_datasets(with_depth=True)
-    for (depth, ds) in allds:
-        print("{}: {} {} ({})".format(pool.name, ' .'*depth, ds.name, ds.dspath))
-
-
-
-def print_all_datasets(pool):
-    allds = pool.get_all_datasets(with_depth=True)
+    print(f"[Pool - {pool.name} ({pool.get_property('health')}, Frag: {pool.get_property('fragmentation')})]")
     for (depth, ds) in allds:
         print("{}: {} {} ({})".format(pool.name, ' .'*depth, ds.name, ds.dspath))
 

@@ -8,7 +8,7 @@ from zfslib_test_tools import *
 conn = zfs.Connection(host='localhost')
 
 # Load poolset
-poolset = conn.load_poolset(get_mounts=True, properties=['used', 'available', 'referenced'])
+poolset = conn.load_poolset(get_mounts=True, zfs_props=['used', 'available', 'referenced'])
 
 pool = poolset.get_pool('rpool')
 ds_root = pool.get_dataset('ROOT')

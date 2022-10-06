@@ -5,6 +5,9 @@
 # Author: Timothy C. Quinn
 # Home: https://github.com/JavaScriptDude/zfslib
 # Licence: https://opensource.org/licenses/BSD-3-Clause
+# TODO:
+# [.] Allow querying of just zpool properties only rather than digging all zfs list -t all for every call
+#     - This will make it much faster for such queries
 #########################################
 
 import subprocess
@@ -17,6 +20,8 @@ from collections import OrderedDict
 from datetime import datetime, timedelta, date as dt_date
 
 is_py2=(sys.version_info[0] == 2)
+
+class __DEFAULT__(object):pass
 
 class Connection:
     host = None
@@ -47,24 +52,16 @@ class Connection:
             self.command.extend([self.host])
 
 
-    # Data is cached unless force=True, snapshots have been made since last read
-    # or properties is different
-    def load_poolset(self, properties=None, get_mounts=True, force=False, _test_data=None):
-        properties = [] if properties is None else properties
-        if force or self._dirty or not self._props_last == properties:
-            self._poolset._load(properties=properties, get_mounts=get_mounts, _test_data=_test_data)
-            self._dirty = False
-            self._props_last = properties
+    
+    # See PoolSet._load for parameters
+
+    def load_poolset(self, zfs_props=None, zpool_props=None, get_mounts=True, force=False, _test_data_zfs=None, _test_data_zpool=None):
+        zfs_props = [] if zfs_props is None else zfs_props
+        if force or not self._props_last == zfs_props:
+            self._poolset._load(zfs_props=zfs_props, zpool_props=zpool_props, get_mounts=get_mounts, _test_data_zfs=_test_data_zfs, _test_data_zpool=_test_data_zpool)
+            self._props_last = zfs_props
 
         return self._poolset
-
-
-    def snapshot_recursively(self, name, snapshotname, properties=None):
-        properties = {} if properties is None else properties
-        plist = sum( map( lambda x: ['-o', '%s=%s' % x ], properties.items() ), [] )
-        subprocess.check_call(self.command + ["zfs", "snapshot", "-r" ] + plist + [ "%s@%s" % (name, snapshotname)])
-        self._dirty = True
-
 
 
 class PoolSet(object):
@@ -105,67 +102,96 @@ class PoolSet(object):
 
         return ret
     
-    # Note: _test_data is for testing only
-    # get_mounts will automated grabbing of mountpoint and mounted properties and
-    # store flag for downstream code to know that these flags are available
-    def _load(self, get_mounts=True, properties=None, _test_data=None):
+    # [zfs_props] properties from % zfs list -o <properties>
+    # [zpool_props] properties from % zpool list -o <properties>
+    # [get_mounts] Append  mountpoint and mounted zfs_props and store flag for downstream code to know that these flags are available
+    # [_test_data_zfs] testing only
+    # [_test_data_zpool] testing only
+    def _load(self, get_mounts=True, zfs_props=None, zpool_props=None, _test_data_zfs=None, _test_data_zpool=None):
         global is_py2
 
-        _pdef=['name', 'creation']
+        # setup zfs list properties (zfs list -o <props>)
+        _zfs_pdef=['name', 'creation']
 
-        if properties is None:
+        if zfs_props is None:
             if get_mounts:
-                _pdef.extend(['mountpoint', 'mounted'])
+                _zfs_pdef.extend(['mountpoint', 'mounted'])
                 self.have_mounts = True
-            properties = _pdef
+            zfs_props = _zfs_pdef
 
         else:
-            if 'mountpoint' in properties and 'mounted' in properties:
+            if 'mountpoint' in zfs_props and 'mounted' in zfs_props:
                 self.have_mounts = True
 
             elif get_mounts:
-                _pdef.extend(['mountpoint', 'mounted'])
+                _zfs_pdef.extend(['mountpoint', 'mounted'])
                 self.have_mounts = True
 
             else:
                 self.have_mounts = False
 
-            properties = _pdef + [s for s in properties if not s in _pdef]
+            zfs_props = _zfs_pdef + [s for s in zfs_props if not s in _zfs_pdef]
+
+
+
+        # setup zpool list properties (zpool list -o <props>)
+        _zpool_pdef=['name', 'size', 'allocated', 'free', 'checkpoint', 'fragmentation', 'capacity', 'health']
+        if zpool_props is None:
+            zpool_props = _zpool_pdef
+        else:
+            zpool_props = _zpool_pdef + [s for s in zpool_props if not s in _zpool_pdef]
+
 
         _base_cmd = self.connection.command
 
-        def extract_properties(s):
+        def extract_properties(s, zpool:bool=False):
+            props = zpool_props if zpool else zfs_props
             if not is_py2 and isinstance(s, bytes): s = s.decode('utf-8')
             items = s.strip().split( '\t' )
-            assert len( items ) == len( properties ), (properties, items)
-            propvalues = map( lambda x: None if x == '-' else x, items[ 1: ] )
-            return [ items[ 0 ], zip( properties[ 1: ], propvalues ) ]
+            assert len( items ) == len( props ), (props, items)
+            propvalues = map( lambda x: None if x == '-' else x, items[1:] )
+            return [ items[ 0 ], zip( props[ 1: ], propvalues ) ]
 
-        if _test_data is None:
-            zfs_list_output = subprocess.check_output(self.connection.command + ["zfs", "list", "-Hpr", "-o", ",".join( properties ), "-t", "all"])
+        # Gather zfs list data
+        if _test_data_zfs is None:
+            zfs_list_output = subprocess.check_output(self.connection.command + ["zfs", "list", "-Hpr", "-o", ",".join( zfs_props ), "-t", "all"])
 
         else: # Use test data
-            zfs_list_output = _test_data
+            zfs_list_output = _test_data_zfs
 
-        creations = OrderedDict([ extract_properties( s ) for s in zfs_list_output.splitlines() if s.strip() ])
+        zfs_list_items = OrderedDict([ extract_properties(s) for s in zfs_list_output.splitlines() if s.strip() ])
+
+
+        # Gather zpool list data
+        if _test_data_zpool is None:
+            zpool_list_output = subprocess.check_output(self.connection.command + ["zpool", "list", "-Hp", "-o", ",".join( zpool_props )])
+
+        else: # Use test data
+            zpool_list_output = _test_data_zpool
+
+        zpool_list_items = OrderedDict([ extract_properties(s, zpool=True) for s in zpool_list_output.splitlines() if s.strip() ])
+
 
         # names of pools
-        old_dsets = [ x.path for x in self.walk() ]
-        old_dsets.reverse()
-        new_dsets = creations.keys()
+        old_items = [ x.path for x in self.walk() ]
+        old_items.reverse()
+        new_items = zfs_list_items.keys()
         pool_cur = None
 
-        for dset in new_dsets:
-            if "@" in dset:
-                dset, snapshot = dset.split("@")
+        for name in new_items:
+            is_zpool = False
+            if "@" in name:
+                name, snapshot = name.split("@")
             else:
                 snapshot = None
-            if "/" not in dset:  # pool name
-                if dset not in self._pools:
-                    pool_cur = Pool(dset, self.connection, self.have_mounts)
-                    self._pools[dset] = pool_cur
-                    fs = self._pools[dset]
-            poolname, pathcomponents = dset.split("/")[0], dset.split("/")[1:]
+            if "/" not in name:  # zpool
+                if name not in self._pools:
+                    is_zpool = True
+                    pool_cur = Pool(name, self.connection, self.have_mounts)
+                    self._pools[name] = pool_cur
+                    fs = self._pools[name]
+
+            poolname, pathcomponents = name.split("/")[0], name.split("/")[1:]
             fs = self._pools[poolname]
             for pcomp in pathcomponents:
                 # traverse the child hierarchy or create if that fails
@@ -177,17 +203,25 @@ class PoolSet(object):
                 if snapshot not in [ x.name for x in fs.children ]:
                     fs = Snapshot(pool_cur, snapshot, fs)
 
-            fs._properties.update( creations[fs.path] )
+            fs._properties.update( zfs_list_items[fs.path] )
+
+            if is_zpool:
+                # Update with zpool properties
+                _zpool_props = zpool_list_items.get(name, __DEFAULT__)
+                assert _zpool_props != __DEFAULT__, f"ERROR - zpool '{name}' not found in zpool_list_items"
+                fs._properties.update( _zpool_props )
+
+            noop()
             
             # std_avail is avail, std_ref is usedds
 
 
-        for dset in old_dsets:
-            if dset not in new_dsets:
-                if "/" not in dset and "@" not in dset:  # a pool
-                    self.remove(dset)
+        for name in old_items:
+            if name not in new_items:
+                if "/" not in name and "@" not in name:  # a pool
+                    self.remove(name)
                 else:
-                    d = self.lookup(dset)
+                    d = self.lookup(name)
                     d.parent.remove(d)
 
 
@@ -1031,3 +1065,7 @@ if "check_output" not in dir( subprocess ): # duck punch it in!
 
 
 ''' END LEGACY DUCK PUNCHING '''
+
+# No operation lambda dropin or breakpoint marker
+def noop(*args, **kwargs):
+    if len(args): return args[0]

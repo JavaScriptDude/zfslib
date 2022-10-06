@@ -7,18 +7,18 @@ from zfslib_test_tools import *
 # [.] Write negative tests for get_mounts=False
 
 # Load / init test data
-properties = ['name', 'creation', 'used', 'available', 'referenced', 'mountpoint','mounted']
-
-zlist_data = load_test_data('data_mounts', properties)
+zfs_props = ['name', 'creation', 'used', 'available', 'referenced', 'mountpoint','mounted']
+zfslist_data = load_test_data('zfs_data_mounts', zfs_props)
+zpool_props = ['name', 'size', 'allocated', 'free', 'checkpoint', 'fragmentation', 'capacity', 'health', 'readonly']
+zpoollist_data = load_test_data('zpool_data', zpool_props)
 poolset = TestPoolSet()
-poolset.parse_zfs_r_output(zlist_data, properties=properties)
+poolset.parse_zfs_r_output(zfs_data=zfslist_data, zpool_data=zpoollist_data, zfs_props=zfs_props, zpool_props=zpool_props)
 pool_names = pool_names = [p.name for p in poolset if True]
 
-
-props_nm = ['name', 'creation', 'used', 'available', 'referenced']
-zlist_data_nm = load_test_data('data_nomounts', props_nm)
+zfs_props_nm = ['name', 'creation', 'used', 'available', 'referenced']
+zlist_data_nm = load_test_data('zfs_data_nomounts', zfs_props_nm)
 ps_nm = TestPoolSet()
-ps_nm.parse_zfs_r_output(zlist_data_nm, properties=props_nm)
+ps_nm.parse_zfs_r_output(zfs_data=zlist_data_nm, zpool_data=zpoollist_data, zfs_props=zfs_props_nm, zpool_props=zpool_props)
 
 class PoolSetTests(unittest.TestCase):
 
@@ -28,7 +28,7 @@ class PoolSetTests(unittest.TestCase):
 
 
     def test_zfs_list_parsing(self):
-        lines = zlist_data.splitlines()
+        lines = zfslist_data.splitlines()
         for line in lines:
             line = line.decode('utf-8') if isinstance(line, bytes) else line
             if line.strip() == '': continue
@@ -94,7 +94,7 @@ class PoolSetTests(unittest.TestCase):
         with self.assertRaises(KeyError): poolset.get_pool('*pool')
 
 
-    # Test PoolSet.lookup and properties: name
+    # Test PoolSet.lookup and zfs_props: name
     def test_poolset_lookup_pool(self):
         pool = poolset.lookup('dpool')
         self.assertIsInstance(pool, zfs.Pool)
@@ -105,7 +105,7 @@ class PoolSetTests(unittest.TestCase):
         with self.assertRaises(KeyError): poolset.lookup('*pool')
 
 
-    # Test PoolSet.lookup, ZFSItem.lookup and properties: name, pool, dataset, parent, path, dspath
+    # Test PoolSet.lookup, ZFSItem.lookup and zfs_props: name, pool, dataset, parent, path, dspath
     def test_poolset_lookup_dataset(self):
         for (pool_c, dspath_c) in [
              ('bpool','BOOT')
@@ -136,7 +136,7 @@ class PoolSetTests(unittest.TestCase):
         with self.assertRaises(KeyError): poolset.lookup('bpool/OOT')
 
 
-    # Test PoolSet.lookup, ZfsItem.lookup, ZfsItem.get_child, and properties: name, pool, dataset, parent, path
+    # Test PoolSet.lookup, ZfsItem.lookup, ZfsItem.get_child, and zfs_props: name, pool, dataset, parent, path
     def test_poolset_lookup_snapshot(self):
         for (pool_c, spath_c, cdate_c) in [
              ('bpool','BOOT/ubuntu_n2qr5q@autozsys_68frge', '1608162058')
@@ -171,6 +171,15 @@ class PoolSetTests(unittest.TestCase):
 
             pool = poolset.lookup('rpool')
             self.assertIsInstance(pool, zfs.Pool)
+            self.assertEqual(pool.get_property('size'), '249108103168')
+            self.assertEqual(pool.get_property('allocated'), '156426862592')
+            self.assertEqual(pool.get_property('free'), '92681240576')
+            self.assertEqual(pool.get_property('checkpoint'), None)
+            self.assertEqual(pool.get_property('fragmentation'), '50')
+            self.assertEqual(pool.get_property('capacity'), '62')
+            self.assertEqual(pool.get_property('health'), 'OFFLINE')
+            self.assertEqual(pool.get_property('readonly'), 'off')
+
             ds = pool.lookup('ROOT')
             self.assertIsInstance(ds, zfs.Dataset)
             ds2=ds.get_child('ubuntu_n2qr5q')
@@ -395,7 +404,7 @@ class PoolSetTests(unittest.TestCase):
                                       ,'tdelta': "1h"})
 
 
-    # tested against data_nomounts.tsv
+    # tested against zfs_data_nomounts.tsv
     def test_no_mounts(self):
         pool = ps_nm.lookup('dpool')
         ds = pool.lookup('vcmain')

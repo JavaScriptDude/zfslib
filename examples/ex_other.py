@@ -15,10 +15,10 @@ def main(argv):
     conn = zfs.Connection(host='localhost')
 
     # Load poolset
-    # Note: the properties name and creation are automatically retrieved
+    # Note: the zfs_props name and creation are automatically retrieved
     # If get_mounts=True, mountpoint and mounted are also retrieved automatically
-    # To see all available properties use: % zfs list -o foo
-    poolset = conn.load_poolset(get_mounts=True, properties=["avail", "usedsnap", "usedrefreserv", "usedchild"])
+    # To see all available zfs_props use: % zfs list -o foo
+    poolset = conn.load_poolset(get_mounts=True, zfs_props=["avail", "usedsnap", "usedrefreserv", "usedchild"])
 
 
     # Print all datasets test

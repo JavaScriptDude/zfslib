@@ -33,7 +33,7 @@ def main(argv):
 
 
     # Find Snapshots of name autosnap* in the last 4 hours
-    snapshots = ds.find_snapshots({'name': 'autosnap*', 'tdelta': '4H'})
+    snapshots = ds.find_snapshots({'name': 'autosnap*', 'tdelta': '4h'})
 
 
     # Iterate through all pools and print all datasets
