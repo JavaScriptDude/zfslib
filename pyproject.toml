@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "zfslib"
-version = "0.9.1"
+version = "0.9.3"
 description = "ZFS Utilities For Python3"
 license = "MIT"
 authors = ["Timothy C. Quinn"]

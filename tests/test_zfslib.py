@@ -337,7 +337,7 @@ class PoolSetTests(unittest.TestCase):
         snaps = ds.find_snapshots({'name': '*zsys_*e*', 'tdelta': timedelta(hours=36)
             ,'dt_to': dt_from_creation('1609362247')})
         self.assertEqual(len(snaps), 5)
-        snaps2 = ds.find_snapshots({'name': '*zsys_*e*', 'tdelta': '36H'
+        snaps2 = ds.find_snapshots({'name': '*zsys_*e*', 'tdelta': '36h'
             ,'dt_to': dt_from_creation('1609362247')})
         self.assertEqual(len(snaps2), len(snaps))
         for i, snap in enumerate(snaps):
@@ -348,7 +348,7 @@ class PoolSetTests(unittest.TestCase):
             ,'dt_from': dt_from_creation('1608233673'), 'tdelta': timedelta(hours=48)})
         self.assertEqual(len(snaps), 5)
         snaps2 = ds.find_snapshots({'name': '*zsys_*w*'
-            ,'dt_from': dt_from_creation('1608233673'), 'tdelta': '48H'})
+            ,'dt_from': dt_from_creation('1608233673'), 'tdelta': '48h'})
         self.assertEqual(len(snaps2), len(snaps))
         for i, snap in enumerate(snaps):
             self.assertIs(snap, snaps2[i])
@@ -384,7 +384,7 @@ class PoolSetTests(unittest.TestCase):
         with self.assertRaises(AssertionError): snaps = ds.find_snapshots({'dt_from': 'asdf'})
         with self.assertRaises(AssertionError): snaps = ds.find_snapshots({'dt_to': 'asdf'})
         with self.assertRaises(AssertionError): snaps = ds.find_snapshots({'tdelta': 10})
-        with self.assertRaises(AssertionError): snaps = ds.find_snapshots({'tdelta': '-10H'})
+        with self.assertRaises(KeyError): snaps = ds.find_snapshots({'tdelta': '-10h'})
         with self.assertRaises(AssertionError): snaps = ds.find_snapshots({'index': 1})
         with self.assertRaises(AssertionError): 
             snaps = ds.find_snapshots({'dt_to': dt_date(2020, 12, 20)
@@ -392,7 +392,7 @@ class PoolSetTests(unittest.TestCase):
         with self.assertRaises(AssertionError): 
             snaps = ds.find_snapshots({'dt_to': dt_date(2020, 12, 21)
                                       ,'dt_from': dt_date(2020, 12, 20)
-                                      ,'tdelta': "1H"})
+                                      ,'tdelta': "1h"})
 
 
     # tested against data_nomounts.tsv
@@ -422,45 +422,45 @@ class PoolSetTests(unittest.TestCase):
 # Test General Utilities
     def test_buildTimedelta(self):
         self.assertEqual(zfs.buildTimedelta(timedelta(seconds=10)), timedelta(seconds=10))
-        self.assertEqual(zfs.buildTimedelta('1y'), timedelta(days=365))
-        self.assertEqual(zfs.buildTimedelta('1m'), timedelta(days=(365/12)))
-        self.assertEqual(zfs.buildTimedelta('1w'), timedelta(weeks=1))
-        self.assertEqual(zfs.buildTimedelta('10d'), timedelta(days=10))
-        self.assertEqual(zfs.buildTimedelta('10H'), timedelta(hours=10))
-        self.assertEqual(zfs.buildTimedelta('10M'), timedelta(minutes=10))
-        self.assertEqual(zfs.buildTimedelta('10S'), timedelta(seconds=10))
+        self.assertEqual(zfs.buildTimedelta('1Y'), timedelta(days=365))
+        self.assertEqual(zfs.buildTimedelta('1M'), timedelta(days=(365/12)))
+        self.assertEqual(zfs.buildTimedelta('1W'), timedelta(weeks=1))
+        self.assertEqual(zfs.buildTimedelta('10D'), timedelta(days=10))
+        self.assertEqual(zfs.buildTimedelta('10h'), timedelta(hours=10))
+        self.assertEqual(zfs.buildTimedelta('10m'), timedelta(minutes=10))
+        self.assertEqual(zfs.buildTimedelta('10s'), timedelta(seconds=10))
 
         # Negative tests
         with self.assertRaises(TypeError): zfs.buildTimedelta()
-        with self.assertRaises(TypeError): zfs.buildTimedelta('1H', True)
-        with self.assertRaises(AssertionError): zfs.buildTimedelta(None)
-        with self.assertRaises(AssertionError): zfs.buildTimedelta(datetime.now())
-        with self.assertRaises(AssertionError): zfs.buildTimedelta('1')
-        with self.assertRaises(AssertionError): zfs.buildTimedelta('aH')
-        with self.assertRaises(AssertionError): zfs.buildTimedelta('-1H')
-        with self.assertRaises(AssertionError): zfs.buildTimedelta('1X')
+        with self.assertRaises(TypeError): zfs.buildTimedelta('1h', True)
+        with self.assertRaises(KeyError): zfs.buildTimedelta(None)
+        with self.assertRaises(KeyError): zfs.buildTimedelta(datetime.now())
+        with self.assertRaises(KeyError): zfs.buildTimedelta('1')
+        with self.assertRaises(KeyError): zfs.buildTimedelta('ah')
+        with self.assertRaises(KeyError): zfs.buildTimedelta('-1h')
+        with self.assertRaises(KeyError): zfs.buildTimedelta('1X')
 
 
 
     def test_calcDateRange(self):
         _now = datetime.now()
         _weekago = datetime.now() - timedelta(weeks=1)
-        self.assertEqual(zfs.calcDateRange('1d', dt_to=_now), \
+        self.assertEqual(zfs.calcDateRange('1D', dt_to=_now), \
             (_now - timedelta(days=1), _now) )
 
-        self.assertEqual(zfs.calcDateRange('2d', dt_from=_weekago), \
+        self.assertEqual(zfs.calcDateRange('2D', dt_from=_weekago), \
             (_weekago, _weekago + timedelta(days=2)) )
 
-        self.assertEqual(zfs.calcDateRange('3m', dt_to=_now), \
+        self.assertEqual(zfs.calcDateRange('3M', dt_to=_now), \
             (_now - timedelta(days=(3 * (365/12))), _now) )
 
         # Negative tests
         with self.assertRaises(TypeError): zfs.calcDateRange()
         with self.assertRaises(TypeError): zfs.calcDateRange(1,2,3,4)
-        with self.assertRaises(AssertionError): zfs.calcDateRange(None)
-        with self.assertRaises(AssertionError): zfs.calcDateRange('1H', _now, _now)
-        with self.assertRaises(AssertionError): zfs.calcDateRange('1H', dt_from=None)
-        with self.assertRaises(AssertionError): zfs.calcDateRange('1H', dt_to=None)
+        with self.assertRaises(KeyError): zfs.calcDateRange(None)
+        with self.assertRaises(KeyError): zfs.calcDateRange('1h', _now, _now)
+        with self.assertRaises(KeyError): zfs.calcDateRange('1h', dt_from=None)
+        with self.assertRaises(KeyError): zfs.calcDateRange('1h', dt_to=None)
 
 
     def test_splitPath(self):

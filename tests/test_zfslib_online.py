@@ -47,7 +47,7 @@ def validate_diff(diff):
         b_cl = False
     elif diff.chg_type == 'R':
         pass
-        
+
     if b_cl: _checkPath(diff.snap_path_left)
     if b_cr: _checkPath(diff.snap_path_right)
 
@@ -61,7 +61,7 @@ class Diff_Tests(unittest.TestCase):
         def _verify_diffs(self, step, diffs):
             self.assertIsInstance(diffs, list, "Step: {}. Object is not a list. Got: {}".format(step, type(diffs)))
             if len(diffs) == 0: return
-            for diff in diffs:
+            for i, diff in enumerate(diffs):
                 try:
                     validate_diff(diff)
                 except Exception as ex:
