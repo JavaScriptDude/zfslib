@@ -15,11 +15,8 @@ import os
 import fnmatch
 import pathlib
 import inspect
-import sys
 from collections import OrderedDict
 from datetime import datetime, timedelta, date as dt_date
-
-is_py2=(sys.version_info[0] == 2)
 
 class __DEFAULT__(object):pass
 
@@ -108,7 +105,6 @@ class PoolSet(object):
     # [_test_data_zfs] testing only
     # [_test_data_zpool] testing only
     def _load(self, get_mounts=True, zfs_props=None, zpool_props=None, _test_data_zfs=None, _test_data_zpool=None):
-        global is_py2
 
         # setup zfs list properties (zfs list -o <props>)
         _zfs_pdef=['name', 'creation']
@@ -146,11 +142,20 @@ class PoolSet(object):
 
         def extract_properties(s, zpool:bool=False):
             props = zpool_props if zpool else zfs_props
-            if not is_py2 and isinstance(s, bytes): s = s.decode('utf-8')
+            if isinstance(s, bytes): s = s.decode('utf-8')
             items = s.strip().split( '\t' )
             assert len( items ) == len( props ), (props, items)
-            propvalues = map( lambda x: None if x == '-' else x, items[1:] )
-            return [ items[ 0 ], zip( props[ 1: ], propvalues ) ]
+            for i in range(1,len(props)):
+                v = items[i]
+                if v == '-':
+                    items[i] = None
+                elif props[i] in ZFS_INT_PROPS:
+                    try:
+                        items[i] = int(v)
+                    except:
+                        pass
+                        
+            return [ items[ 0 ], zip( props[ 1: ], items[ 1: ] ) ]
 
         # Gather zfs list data
         if _test_data_zfs is None:
@@ -575,7 +580,6 @@ class Dataset(Snapable):
     #  - M       The path has been modified
     #  - R       The path has been renamed
     def get_diffs(self, snap_from, snap_to=None, include=None, exclude=None, file_type=None, chg_type=None):
-        global is_py2
         self.assertHaveMounts()
         assert self.mounted, "Cannot get diffs for Unmounted Dataset. Verify mounted flag on Dataset before calling"
 
@@ -620,7 +624,7 @@ class Dataset(Snapable):
 
 
         def __row(s):
-            if not is_py2 and isinstance(s, bytes): s = s.decode('utf-8')
+            if isinstance(s, bytes): s = s.decode('utf-8')
             return s.strip().split( '\t' )
 
         rows = list(map(lambda s: __row(s), stdout.splitlines()))
@@ -893,7 +897,7 @@ class Diff():
 
 ''' END ZFS Entities '''
 
-
+ZFS_INT_PROPS =  set("allocated,available,capacity,checkpoint,createtxg,expandsize,filesystem_count,filesystem_limit,fragmentation,free,freeing,leaked,logicalreferenced,logicalused,objsetid,quota,referenced,refquota,refreservation,reservation,size,snapshot_count,snapshot_limit,used,usedbychildren,usedbydataset,usedbyrefreservation,usedbysnapshots,userrefs,volsize,written".split(','))
 
 ''' General Utilities '''
 
