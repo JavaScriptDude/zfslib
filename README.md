@@ -14,7 +14,9 @@ Install this plugin using `pip`:
 
 ## Usage
 
-See examples folder
+To get Diffs, be aware that permissions need to be [granted](https://askubuntu.com/questions/1299671/zfs-diff-diff-delegated-permission-is-needed) to the user requesting the zfs diff using `sudo zfs allow...`
+
+See examples folder for code examples
 
 ## Sample code
 

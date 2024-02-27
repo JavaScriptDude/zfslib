@@ -6,6 +6,7 @@
 # Home: https://github.com/JavaScriptDude/zfslib
 # Licence: https://opensource.org/licenses/BSD-3-Clause
 # TODO:
+# [.] In meld mode, handle ctrl-C (KeyboardInterrupt) gracefully
 # [.] Allow querying of just zpool properties only rather than digging all zfs list -t all for every call
 #     - This will make it much faster for such queries
 #########################################
@@ -237,27 +238,25 @@ class PoolSet(object):
         del self._pools[name]
 
 
-    # Will resolve Pool and Dataset for a path on local filesystem using the mountpoint
-    # returns (Pool, Dataset, Real_Path, Relative_Path)
+    # resolve Pool and Dataset for a path on local filesystem using the mountpoint
     # Note: Ignores any dataset with root mountpoint (/)
+    # eg: (dataset, real_path, rel_path) = find_dataset_for_path('/dpool/foo/bar/baz.sh')
     def find_dataset_for_path(self, path):
         assert self.have_mounts, "Mount information not loaded. Please use Connection.load_poolset(get_mounts=True)."
         p_real = os.path.abspath( expand_user(path) )
         p_real = os.path.realpath(p_real)
-        pool=ds=mp=p_rela=None
+        mp=None
         for pool_c in self:
             datasets = pool_c.get_all_datasets()
             for ds_c in datasets:
-                if not ds_c.has_mount or ds_c.mountpoint == '/': continue
-                mp_c = ds_c.mountpoint
-                if p_real.find(mp_c) == 0:
-                    if mp is None or len(mp_c) > len(mp):
-                        p_rela = p_real.replace(mp_c, '')
-                        ds = ds_c
-                        pool = pool_c
-                        mp = mp_c
+                if not ds_c.has_mount \
+                    or ds_c.mountpoint is None \
+                    or ds_c.mountpoint == '/': continue
+                if p_real.find(ds_c.mountpoint) == 0:
+                    if mp is None or len(ds_c.mountpoint) > len(mp):
+                        return (ds_c, p_real, p_real.replace(ds_c.mountpoint, ''))
                         
-        return (ds, p_real, p_rela)
+        return (None, None, None)
 
 
     def __getitem__(self, name):

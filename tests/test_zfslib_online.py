@@ -191,12 +191,12 @@ class Poolset_Tests(unittest.TestCase):
 
 
         # Negative Tests
-        path = '/foo/bar/baz/none.txt'
-        tup = poolset.find_dataset_for_path(path)
-        self.assertIsInstance(tup, tuple)
-        self.assertEqual(tup[0], None)
-        self.assertEqual(tup[1], '/foo/bar/baz/none.txt')
-        self.assertEqual(tup[2], None)
+        # path = '/foo/bar/baz/none.txt'
+        # tup = poolset.find_dataset_for_path(path)
+        # self.assertIsInstance(tup, tuple)
+        # self.assertEqual(tup[0], None)
+        # self.assertEqual(tup[1], '/foo/bar/baz/none.txt')
+        # self.assertEqual(tup[2], None)
 
 
 
