@@ -833,8 +833,9 @@ class Diff():
             raise Exception(f"Unexpected len: {len(row)}. Row = {row}")
 
         # Derrive Move change type
-        if get_move and chg_type == 'R' and path_new is not None:
-            chg_type = 'V'
+        if get_move and file_type == 'F' and chg_type == 'R':
+            if splitPath(path)[1] != splitPath(path_new)[1]: 
+                chg_type = 'V'
 
         # Fix issue related to https://github.com/openzfs/zfs/issues/6318
         path = path.replace("\\0040", " ")
