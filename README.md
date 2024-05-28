@@ -133,6 +133,9 @@ See examples folder for code examples
     #  - +       The path has been created
     #  - M       The path has been modified
     #  - R       The path has been renamed
+    #  - V       The path has moved
+    # get_move - Derrive the V flag for paths that have moved. 
+    #            By default zfs returns R for renamed and moved paths.
 ```
 
 ### `<Snapshot>.snap_path`

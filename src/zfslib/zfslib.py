@@ -578,7 +578,8 @@ class Dataset(Snapable):
     #  - +       The path has been created
     #  - M       The path has been modified
     #  - R       The path has been renamed
-    def get_diffs(self, snap_from, snap_to=None, include=None, exclude=None, file_type=None, chg_type=None):
+    #  - V       The path has been moved
+    def get_diffs(self, snap_from, snap_to=None, include=None, exclude=None, file_type=None, chg_type=None, get_move:bool=False):
         self.assertHaveMounts()
         assert self.mounted, "Cannot get diffs for Unmounted Dataset. Verify mounted flag on Dataset before calling"
 
@@ -597,6 +598,7 @@ class Dataset(Snapable):
             if isinstance(v, list): return v
             raise AssertionError(f"{k} can only be a str or list. Got: {type(v)}")
 
+        if chg_type == 'V': get_move = True
 
         file_type = __tv('file_type', file_type)
         chg_type = __tv('chg_type', chg_type)
@@ -631,7 +633,7 @@ class Dataset(Snapable):
         for i, row in enumerate(rows):
             # if i == 429:
             #     print("HERE")
-            d = Diff(row, snap_left, snap_right)
+            d = Diff(row, snap_left, snap_right, get_move=get_move)
             if d.path_full.find('(on_delete_queue)') > 0:
                 # It looks to be an artefact of ZFS that does not actually exist in FS
                 # https://github.com/openzfs/zfs/blob/master/lib/libzfs/libzfs_diff.c
@@ -798,8 +800,9 @@ class Diff():
        ,'+': 'The path has been created'
        ,'M': 'The path has been modified'
        ,'R': 'The path has been renamed'
+       ,'V': 'The path has been moved'
     }
-    def __init__(self, row, snap_left, snap_right):
+    def __init__(self, row, snap_left, snap_right, get_move:bool=False):
         self.no_from_snap=False
         self.to_present=False
         if isinstance(snap_left, str) and snap_left == '(na-first)':
@@ -828,6 +831,13 @@ class Diff():
             (inode_ts, chg_type, file_type, path, path_new) = row
         else:
             raise Exception(f"Unexpected len: {len(row)}. Row = {row}")
+
+        # Derrive Move change type
+        if get_move and chg_type == 'R' and path_new is not None:
+            chg_type = 'V'
+
+        # Fix issue related to https://github.com/openzfs/zfs/issues/6318
+        path = path.replace("\\0040", " ")
 
         chg_time = datetime.fromtimestamp(int(inode_ts[:inode_ts.find('.')]))
         self.chg_ts = inode_ts
@@ -871,7 +881,7 @@ class Diff():
         if self.to_present:
             return self.path_full
         snap_path = self.snap_right.snap_path
-        path_full = self.path_full_new if self.chg_type == 'R' else self.path_full
+        path_full = self.path_full_new if self.chg_type in ('R','V') else self.path_full
         return "{}{}".format(snap_path, path_full.replace(self.snap_left.dataset.mountpoint, ''))
     snap_path_right = property(_get_snap_path_right)
     
