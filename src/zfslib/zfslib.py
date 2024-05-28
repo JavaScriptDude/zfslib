@@ -579,7 +579,8 @@ class Dataset(Snapable):
     #  - M       The path has been modified
     #  - R       The path has been renamed
     #  - V       The path has been moved
-    def get_diffs(self, snap_from, snap_to=None, include=None, exclude=None, file_type=None, chg_type=None, get_move:bool=False):
+    # ign_xattrdir - Filter out <xattrdir> entries
+    def get_diffs(self, snap_from, snap_to=None, include=None, exclude=None, file_type=None, chg_type=None, get_move:bool=False, ign_xattrdir:bool=False):
         self.assertHaveMounts()
         assert self.mounted, "Cannot get diffs for Unmounted Dataset. Verify mounted flag on Dataset before calling"
 
@@ -631,6 +632,10 @@ class Dataset(Snapable):
         rows = list(map(lambda s: __row(s), stdout.splitlines()))
         diffs = []
         for i, row in enumerate(rows):
+
+            if ign_xattrdir and row[3].find('/<xattrdir>') > -1: 
+                continue
+
             # if i == 429:
             #     print("HERE")
             d = Diff(row, snap_left, snap_right, get_move=get_move)
@@ -832,13 +837,15 @@ class Diff():
         else:
             raise Exception(f"Unexpected len: {len(row)}. Row = {row}")
 
+        # Fix issue related to https://github.com/openzfs/zfs/issues/6318
+        path = path.replace("\\0040", " ")
+        if path_new: 
+            path_new = path_new.replace("\\0040", " ")
+
         # Derrive Move change type
         if get_move and file_type == 'F' and chg_type == 'R':
             if splitPath(path)[1] != splitPath(path_new)[1]: 
                 chg_type = 'V'
-
-        # Fix issue related to https://github.com/openzfs/zfs/issues/6318
-        path = path.replace("\\0040", " ")
 
         chg_time = datetime.fromtimestamp(int(inode_ts[:inode_ts.find('.')]))
         self.chg_ts = inode_ts
