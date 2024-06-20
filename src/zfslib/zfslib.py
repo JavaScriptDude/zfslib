@@ -557,6 +557,18 @@ class Dataset(Snapable):
         super(Dataset, self).__init__(pool, name, parent)
         self.dspath = self.path[len(pool.name)+1:]
 
+    # Take a pipe in and zfs receive it
+    # Blocks until receive is complete
+    # Returns the resulting processess (after it completes)
+    def receive(self, pipe_in):
+        cmd = self.pool.connection.command + ["zfs", "receive", self.path]
+
+        try:
+            p = subprocess.Popen(cmd, stdin=pipe_in)
+            p.wait()
+            return p
+        except Exception as exc:
+            raise exc
 
     # get_diffs() - Gets Diffs in snapshot or between snapshots (if snap_to is specified)
     # snap_from - Left side of diff
@@ -772,6 +784,22 @@ class Snapshot(ZFSItem):
             return (True, snap_path)
         else:
             return (False, snap_path_base)
+
+    # Return a pipe with the contents of the snapshot
+    # Make it an incremental send if incremental_from is passed
+    def send(self, incremental_from=None):
+        if incremental_from and not isinstance(incremental_from, Snapshot):
+            assert 0, "incremental_from must be another snapshot"
+        if incremental_from:
+            cmd = self.pool.connection.command + ["zfs", "send", "-i", incremental_from.path, self.path]
+        else:
+            cmd = self.pool.connection.command + ["zfs", "send", self.path]
+
+        try:
+            p = subprocess.Popen(cmd, stdout=subprocess.PIPE, shell=False)
+            return p.stdout # When the reading starts, the subprocess will also be started
+        except Exception as exc:
+            raise exc
 
 
     def __str__(self):
