@@ -30,7 +30,7 @@ See examples folder for code examples
 
 
     # Load poolset. 
-    # zfs properties can be queried here with: zfs_prop=['prop1','prop2',...]
+    # zfs properties can be queried here with: zfs_props=['prop1','prop2',...]
     # zpool properties can be queried here with: zpool_props=['prop1','prop2',...]
     # Default properties: name, creation
     # If get_mounts=True, mountpoint and mounted are also retrieved automatically
