@@ -28,16 +28,21 @@ class Connection:
     _trust = False
     _props_last = None
 
-    def __init__(self, host="localhost", trust=False, sshcipher=None, identityfile=None, knownhostsfile=None, verbose=False):
+    def __init__(self, host="localhost", user=None, port=22, trust=False, sshcipher=None, identityfile=None, knownhostsfile=None, verbose=False):
         self.host = host
+        self.user = user
+        self.port = str(port)
         self._trust = trust
         self._poolset = PoolSet(self)
         self.verbose = verbose
         self._pools_loaded = False
         if host in ['localhost','127.0.0.1']:
             self.command = []
+            self.command.extend(["-p", self.port])
+            
         else:
             self.command = ["ssh","-o","BatchMode=yes","-a","-x"]
+            self.command.extend(["-p", self.port])
             if self._trust:
                 self.command.extend(["-o","CheckHostIP=no"])
                 self.command.extend(["-o","StrictHostKeyChecking=no"])
@@ -47,7 +52,10 @@ class Connection:
                 self.command.extend(["-i",identityfile])
             if knownhostsfile != None:
                 self.command.extend(["-o","UserKnownHostsFile=%s" % knownhostsfile])
-            self.command.extend([self.host])
+            if self.user == None:
+                self.command.extend([self.host])
+            else:
+                self.command.extend([self.user + "@" + self.host])
 
 
     
