@@ -38,7 +38,6 @@ class Connection:
         self._pools_loaded = False
         if host in ['localhost','127.0.0.1']:
             self.command = []
-            self.command.extend(["-p", self.port])
             
         else:
             self.command = ["ssh","-o","BatchMode=yes","-a","-x"]
