@@ -741,7 +741,7 @@ class Snapshot(ZFSItem):
         assert isinstance(self.parent, Dataset), \
             "This function is only available for Snapshots of Datasets not Pools"
         self.parent.assertHaveMounts()
-        return f"{self.parent.mountpoint}/.zfs/snapshot/{self.name}"
+        return str(pathlib.Path(self.parent.mountpoint) / f".zfs/snapshot/{self.name}")
     snap_path = property(_get_snap_path)
 
     
