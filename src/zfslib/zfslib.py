@@ -1091,25 +1091,44 @@ if "check_output" not in dir( subprocess ): # duck punch it in!
 
 ''' END LEGACY DUCK PUNCHING '''
 
-# Compiled regex for matching octal escape sequences (e.g., \0040)
-_OCTAL_ESCAPE_PATTERN = re.compile(r'\\(\d{3,4})')
 
 def decode_octal_escapes(s):
     """
-    Decode octal escape sequences in ZFS paths to UTF-8 characters.
-    ZFS uses octal escapes like \0040 for space, \0342\0200\0231 for ', etc.
-    See: https://github.com/openzfs/zfs/issues/6318
+    Decode ZFS octal escape sequences to UTF-8 characters.
+    Handles multi-byte UTF-8 sequences like \0342\0200\0231 -> '
     """
     if not s:
         return s
     
-    def replace_octal(match):
-        try:
-            return bytes([int(match.group(1), 8)]).decode('utf-8', errors='replace')
-        except (ValueError, UnicodeDecodeError):
-            return match.group(0)  # Return original if decode fails
+    result = []
+    byte_buffer = []
+    i = 0
     
-    return _OCTAL_ESCAPE_PATTERN.sub(replace_octal, s)
+    while i < len(s):
+        # Check for octal escape sequence \#### (4 digits)
+        if i + 4 < len(s) and s[i:i+1] == '\\' and s[i+1:i+5].isdigit():
+            octal_val = int(s[i+1:i+5], 8)
+            byte_buffer.append(octal_val)
+            i += 5
+        else:
+            # Not an octal sequence - flush byte buffer if any
+            if byte_buffer:
+                try:
+                    result.append(bytes(byte_buffer).decode('utf-8'))
+                except UnicodeDecodeError:
+                    result.append(bytes(byte_buffer).decode('latin-1', errors='replace'))
+                byte_buffer = []
+            result.append(s[i])
+            i += 1
+    
+    # Flush remaining bytes
+    if byte_buffer:
+        try:
+            result.append(bytes(byte_buffer).decode('utf-8'))
+        except UnicodeDecodeError:
+            result.append(bytes(byte_buffer).decode('latin-1', errors='replace'))
+    
+    return ''.join(result)
 
 
 
