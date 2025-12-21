@@ -13,6 +13,7 @@
 
 import subprocess
 import os
+import re
 import fnmatch
 import pathlib
 import inspect
@@ -839,9 +840,11 @@ class Diff():
             raise Exception(f"Unexpected len: {len(row)}. Row = {row}")
 
         # Fix issue related to https://github.com/openzfs/zfs/issues/6318
-        path = path.replace(r"\0040", " ")
+        # Octal escapes in paths to get around issues with special characters
+        # a particular issue when compiling an app using pyinstaller
+        path = decode_octal_escapes(path)
         if path_new: 
-            path_new = path_new.replace(r"\0040", " ")
+            path_new = decode_octal_escapes(path_new)
 
         # Derrive Move change type
         if get_move and file_type == 'F' and chg_type == 'R':
@@ -1087,6 +1090,28 @@ if "check_output" not in dir( subprocess ): # duck punch it in!
 
 
 ''' END LEGACY DUCK PUNCHING '''
+
+# Compiled regex for matching octal escape sequences (e.g., \0040)
+_OCTAL_ESCAPE_PATTERN = re.compile(r'\\(\d{3,4})')
+
+def decode_octal_escapes(s):
+    """
+    Decode octal escape sequences in ZFS paths to UTF-8 characters.
+    ZFS uses octal escapes like \0040 for space, \0342\0200\0231 for ', etc.
+    See: https://github.com/openzfs/zfs/issues/6318
+    """
+    if not s:
+        return s
+    
+    def replace_octal(match):
+        try:
+            return bytes([int(match.group(1), 8)]).decode('utf-8', errors='replace')
+        except (ValueError, UnicodeDecodeError):
+            return match.group(0)  # Return original if decode fails
+    
+    return _OCTAL_ESCAPE_PATTERN.sub(replace_octal, s)
+
+
 
 # No operation lambda dropin or breakpoint marker
 def noop(*args, **kwargs):
