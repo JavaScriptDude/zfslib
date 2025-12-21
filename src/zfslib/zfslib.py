@@ -742,6 +742,7 @@ class Snapshot(ZFSItem):
             "This function is only available for Snapshots of Datasets not Pools"
         self.parent.assertHaveMounts()
         return str(pathlib.Path(self.parent.mountpoint) / f".zfs/snapshot/{self.name}")
+    
     snap_path = property(_get_snap_path)
 
     
@@ -838,9 +839,9 @@ class Diff():
             raise Exception(f"Unexpected len: {len(row)}. Row = {row}")
 
         # Fix issue related to https://github.com/openzfs/zfs/issues/6318
-        path = path.replace("\\0040", " ")
+        path = path.replace(r"\0040", " ")
         if path_new: 
-            path_new = path_new.replace("\\0040", " ")
+            path_new = path_new.replace(r"\0040", " ")
 
         # Derrive Move change type
         if get_move and file_type == 'F' and chg_type == 'R':
